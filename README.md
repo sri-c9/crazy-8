@@ -63,13 +63,20 @@ crazy-8/
 │   ├── game.html          # Game UI
 │   ├── styles.css         # Styles
 │   └── game-client.js     # Client logic
-├── PLAN.md                # Implementation plan
+├── docs/                  # Documentation
+│   ├── PLAN.md            # Overall implementation plan
+│   ├── PHASE1-PLAN.md     # Phase 1 technical spec
+│   ├── PHASE1-GUIDE.md    # Phase 1 learning guide
+│   └── CONTRIBUTING.md    # Git workflow guide
 └── README.md              # This file
 ```
 
 ## Development
 
-See [PLAN.md](./PLAN.md) for the full implementation and design plan.
+- **Start here**: [Phase 1 Learning Guide](./docs/PHASE1-GUIDE.md) - Build the core server yourself
+- **Technical spec**: [Phase 1 Plan](./docs/PHASE1-PLAN.md) - Detailed architecture
+- **Overall design**: [Full Plan](./docs/PLAN.md) - Complete implementation roadmap
+- **Git workflow**: [Contributing](./docs/CONTRIBUTING.md) - Gitflow lite strategy
 
 ## Tech Stack
 
