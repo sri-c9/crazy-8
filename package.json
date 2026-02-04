@@ -2,10 +2,11 @@
   "name": "insane-crazy-8",
   "version": "0.1.0",
   "description": "Multiplayer Crazy 8 card game with insane rules",
-  "main": "server.js",
+  "main": "server.ts",
   "scripts": {
-    "start": "bun server.js",
-    "dev": "bun --watch server.js"
+    "start": "bun server.ts",
+    "dev": "bun --watch server.ts",
+    "build": "bun build public/game-client.ts --outdir public --target browser"
   },
   "keywords": [
     "card-game",

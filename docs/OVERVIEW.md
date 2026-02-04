@@ -8,8 +8,9 @@ A multiplayer web-based Crazy 8 card game with insane rules, designed for 3-6 pl
 
 | Component | Technology | Rationale |
 |-----------|------------|-----------|
-| **Runtime/Server** | Bun.js | Built-in HTTP + WebSocket support, no dependencies needed |
-| **Frontend** | Vanilla HTML/CSS/JS | Zero build step, simple rendering, mobile-optimized |
+| **Runtime/Server** | Bun.js | Built-in HTTP + WebSocket support, native TypeScript execution |
+| **Language** | TypeScript | Type safety throughout, Bun runs `.ts` natively on server |
+| **Frontend** | TypeScript | Compiled to JS via Bun's bundler, type-safe client code |
 | **Real-time** | Bun WebSocket API | Native WebSocket support, low latency |
 | **State Management** | In-memory (server) | Stateful game rooms stored in Map, no database needed |
 | **Deployment** | Local + ngrok | Run on local machine, expose via ngrok tunnel |
@@ -120,83 +121,109 @@ A multiplayer web-based Crazy 8 card game with insane rules, designed for 3-6 pl
 
 ### Game State (Server)
 
-```javascript
-{
-  roomCode: string,           // 4-character room code
-  players: [                  // Array of player objects
-    {
-      id: string,             // Unique player ID
-      name: string,           // Display name
-      hand: Card[],           // Cards in hand
-      connected: boolean      // Connection status
-    }
-  ],
-  currentPlayerIndex: number, // Index in players array
-  direction: 1 | -1,          // 1 = clockwise, -1 = counter
-  discardPile: Card[],        // Top card is current play
-  gameStatus: 'waiting' | 'playing' | 'finished',
-  winner: string | null,      // Player ID of winner
-  pendingDraws: number,       // Accumulated draws from stacking
-  reverseStackCount: number   // Current reverse stack count
+```ts
+interface PlayerInfo {
+  id: string;             // Unique player ID
+  name: string;           // Display name
+  avatar: string;         // Emoji avatar (e.g., "😎")
+  hand: Card[];           // Cards in hand
+  connected: boolean;     // Connection status
+}
+
+interface GameState {
+  roomCode: string;           // 4-character room code
+  players: PlayerInfo[];      // Array of player objects
+  currentPlayerIndex: number; // Index in players array
+  direction: 1 | -1;          // 1 = clockwise, -1 = counter
+  discardPile: Card[];        // Top card is current play
+  gameStatus: "waiting" | "playing" | "finished";
+  winner: string | null;      // Player ID of winner
+  pendingDraws: number;       // Accumulated draws from stacking
+  reverseStackCount: number;  // Current reverse stack count
 }
 ```
 
 ### Card Object
 
-```javascript
-{
-  type: '0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'9'|'8'|'+2'|'+4'|'+20'|'skip'|'reverse',
-  color: 'red'|'blue'|'green'|'yellow'|null  // null for wilds
+```ts
+type CardValue = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 9 | "Skip" | "Reverse" | "+2" | "+4" | "+20";
+type CardColor = "red" | "blue" | "green" | "yellow" | "wild";
+
+interface Card {
+  value: CardValue;
+  color: CardColor;
 }
 ```
 
 ### WebSocket Messages
 
 **Client → Server**
-```javascript
-// Join room
-{ action: 'join', roomCode: string, playerName: string }
+```ts
+interface JoinAction {
+  action: "join";
+  roomCode: string;
+  playerName: string;
+  avatar: string;
+}
 
-// Play card
-{ action: 'play', cardIndex: number, chosenColor?: string }
+interface PlayAction {
+  action: "play";
+  cardIndex: number;
+  chosenColor?: "red" | "blue" | "green" | "yellow";
+}
 
-// Draw card
-{ action: 'draw' }
+interface DrawAction {
+  action: "draw";
+}
 
-// Create room
-{ action: 'create', playerName: string }
+interface CreateAction {
+  action: "create";
+  playerName: string;
+  avatar: string;
+}
+
+type ClientMessage = JoinAction | PlayAction | DrawAction | CreateAction;
 ```
 
 **Server → Client**
-```javascript
-// Game state update
-{
-  type: 'state',
-  gameState: GameState,
-  yourPlayerId: string
+```ts
+interface StateMessage {
+  type: "state";
+  gameState: GameState;
+  yourPlayerId: string;
 }
 
-// Error
-{ type: 'error', message: string }
+interface ErrorMessage {
+  type: "error";
+  message: string;
+}
 
-// Room created
-{ type: 'roomCreated', roomCode: string }
+interface RoomCreatedMessage {
+  type: "roomCreated";
+  roomCode: string;
+}
+
+type ServerMessage = StateMessage | ErrorMessage | RoomCreatedMessage;
 ```
 
 ## File Structure
 
 ```
 crazy-8/
-├── server.js              # Bun server (HTTP + WebSocket)
-├── game-logic.js          # Game rules and validation
-├── room-manager.js        # Room creation and management
+├── server.ts              # Bun server (HTTP + WebSocket)
+├── game-logic.ts          # Game rules and validation
+├── room-manager.ts        # Room creation and management
 ├── public/
 │   ├── index.html         # Landing page (join/create)
 │   ├── game.html          # Game UI
 │   ├── styles.css         # Mobile-optimized styles
-│   ├── game-client.js     # WebSocket client + rendering
+│   ├── game-client.ts     # WebSocket client + rendering (TypeScript)
+│   ├── lobby.ts           # Lobby/waiting room UI (TypeScript)
 │   └── cards/             # Card images (optional)
-├── PLAN.md                # This file
+├── docs/
+│   ├── OVERVIEW.md        # This file
+│   ├── plans/             # Phase-by-phase technical specs
+│   └── guides/            # Learning guides for each phase
 └── README.md              # Setup instructions
 ```
 
@@ -223,7 +250,7 @@ crazy-8/
 - [ ] Reverse logic with stack limit
 - [ ] Win condition detection
 
-### Phase 4: Basic UI
+### Phase 4: Basic UI (Claude Code)
 - [ ] Landing page (create/join room)
 - [ ] Game board layout
 - [ ] Player hand display
@@ -231,32 +258,30 @@ crazy-8/
 - [ ] Turn indicator
 - [ ] Opponent card counts
 
-### Phase 5: Interactivity
-- [ ] WebSocket client connection
-- [ ] Play card interaction
-- [ ] Draw card interaction
-- [ ] Color picker for wilds
-- [ ] Real-time state updates
-- [ ] Game start/end screens
+_Note: Frontend UI phases are implemented by Claude Code following established architectural patterns._
 
-### Phase 6: Polish & UX
+### Phase 5: Error Handling & Reconnection
+- [ ] Structured error responses
+- [ ] Server-side reconnection handler
+- [ ] Error toasts (Claude Code)
+- [ ] Loading states (Claude Code)
+- [ ] Connection indicator (Claude Code)
+
+### Phase 6: Animations & Mobile UX (Claude Code)
 - [ ] CSS animations (card plays)
 - [ ] Mobile-responsive layout
 - [ ] Touch-friendly card selection
-- [ ] Loading states
-- [ ] Error handling and messages
-- [ ] Reconnection logic
+- [ ] Optimistic UI updates
 
-### Phase 7: Deployment
-- [ ] ngrok setup instructions
-- [ ] Testing with multiple devices
-- [ ] Performance optimization
-- [ ] Bug fixes
+### Phase 7: Game Settings & Variations
+- [ ] Configurable game rules
+- [ ] Rule presets
+- [ ] Host settings UI (Claude Code)
 
-### Phase 8: Admin (Future)
+### Phase 8: Admin Panel
 - [ ] Password-protected admin route
-- [ ] Feature toggle UI
-- [ ] Custom rule configurations
+- [ ] Game monitoring dashboard (Claude Code)
+- [ ] Feature toggle endpoints
 
 ## UI Design Considerations
 
@@ -377,7 +402,7 @@ crazy-8/
 
 1. Install Bun: `curl -fsSL https://bun.sh/install | bash`
 2. Clone/create project directory
-3. Run server: `bun server.js`
+3. Run server: `bun server.ts`
 4. In separate terminal: `ngrok http 3000`
 5. Share ngrok URL with friends
 6. Play!
