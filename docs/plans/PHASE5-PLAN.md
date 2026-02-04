@@ -12,7 +12,9 @@ Wire up complete WebSocket client logic, add real-time state synchronization, im
 
 ## Files to Modify
 
-### 1. `public/game-client.js` — Enhanced WebSocket Client (MODIFY)
+### 1. `public/game-client.ts` — Enhanced WebSocket Client (MODIFY)
+
+**Note:** Frontend features (optimistic UI, toasts, loading states) will be handled by Claude Code.
 
 **New Features:**
 
@@ -39,13 +41,17 @@ Wire up complete WebSocket client logic, add real-time state synchronization, im
   - Specific messages: "Not your turn", "Invalid card", "Connection lost", etc.
 
 **Key Functions to Add:**
+```ts
+function reconnect(): void
+function showToast(message: string, type: "error" | "success" | "info"): void
+function enableInteraction(): void
+function disableInteraction(): void
+function validateLocalState(): boolean
+```
 
-- `reconnect()` — Exponential backoff reconnection logic
-- `showToast(message, type)` — Toast notification system ("error", "success", "info")
-- `enableInteraction()` / `disableInteraction()` — Lock UI during server requests
-- `validateLocalState()` — Check if local state matches server (for debugging)
+### 2. `public/lobby.ts` — Enhanced Lobby Client (MODIFY)
 
-### 2. `public/lobby.js` — Enhanced Lobby Client (MODIFY)
+**Note:** Frontend features (animations, clipboard) will be handled by Claude Code.
 
 **New Features:**
 
@@ -70,34 +76,39 @@ Wire up complete WebSocket client logic, add real-time state synchronization, im
   - Show "Copied!" feedback
 
 **Key Functions to Add:**
+```ts
+function copyRoomCode(): void
+function validateRoomCodeInput(code: string): boolean
+function updateConnectionStatus(status: "connected" | "connecting" | "disconnected"): void
+```
 
-- `copyRoomCode()` — Copy to clipboard with feedback
-- `validateRoomCodeInput(code)` — Client-side validation
-- `updateConnectionStatus(status)` — Update status indicator dot
-
-### 3. `server.js` — Enhanced Error Responses (MODIFY)
+### 3. `server.ts` — Enhanced Error Responses (MODIFY)
 
 **Improved Error Messages:**
 
 Current errors are generic ("Room not found"). Provide specific codes:
 
-```js
+```json
 {
-  type: "error",
-  code: "ROOM_NOT_FOUND",
-  message: "Room code ABXY does not exist"
+  "type": "error",
+  "code": "ROOM_NOT_FOUND",
+  "message": "Room code ABXY does not exist"
 }
+```
 
+```json
 {
-  type: "error",
-  code: "NOT_YOUR_TURN",
-  message: "Wait for your turn"
+  "type": "error",
+  "code": "NOT_YOUR_TURN",
+  "message": "Wait for your turn"
 }
+```
 
+```json
 {
-  type: "error",
-  code: "INVALID_CARD",
-  message: "Card doesn't match color or number"
+  "type": "error",
+  "code": "INVALID_CARD",
+  "message": "Card doesn't match color or number"
 }
 ```
 
@@ -107,6 +118,8 @@ Current errors are generic ("Room not found"). Provide specific codes:
 - `INVALID_CARD` → "That card can't be played right now"
 
 ### 4. `public/styles.css` — Loading & Toast Styles (MODIFY)
+
+**Note:** Frontend styling will be handled by Claude Code.
 
 **New Components:**
 
@@ -187,19 +200,21 @@ Current errors are generic ("Room not found"). Provide specific codes:
    - Server restarted (room gone) → Show "Room no longer exists" + redirect to lobby
    - Player kicked → Show "Removed from room" + redirect to lobby
 
-**Implementation in `game-client.js`:**
+**Implementation in `game-client.ts`:**
 
-```js
-let reconnectAttempts = 0;
-const maxReconnectAttempts = 10;
+**Note:** Frontend reconnection logic will be handled by Claude Code.
 
-function reconnect() {
+```ts
+let reconnectAttempts: number = 0;
+const maxReconnectAttempts: number = 10;
+
+function reconnect(): void {
   if (reconnectAttempts >= maxReconnectAttempts) {
     showReconnectFailure();
     return;
   }
 
-  const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 16000);
+  const delay: number = Math.min(1000 * Math.pow(2, reconnectAttempts), 16000);
   reconnectAttempts++;
 
   setTimeout(() => {
@@ -207,12 +222,12 @@ function reconnect() {
   }, delay);
 }
 
-ws.onclose = () => {
+ws.onclose = (): void => {
   showReconnectingOverlay();
   reconnect();
 };
 
-ws.onopen = () => {
+ws.onopen = (): void => {
   reconnectAttempts = 0;
   hideReconnectingOverlay();
   // Send reconnect action if returning to active game
@@ -226,20 +241,20 @@ ws.onopen = () => {
 };
 ```
 
-### 6. `game-logic.js` — Reconnection Support (MODIFY)
+### 6. `game-logic.ts` — Reconnection Support (MODIFY)
 
 **New Function:**
 
-- `reconnectPlayer(roomCode, playerId) → GameState`
+- `reconnectPlayer(roomCode: string, playerId: string): GameState`
   - Mark player as `connected: true`
   - Return current game state for client sync
   - Broadcast to room that player reconnected
 
 **Server Message Handler:**
 
-```js
+```ts
 case "reconnect":
-  const state = gameLogic.reconnectPlayer(data.roomCode, data.playerId);
+  const state: GameState = gameLogic.reconnectPlayer(data.roomCode, data.playerId);
   ws.send(JSON.stringify({ type: "state", gameState: state, yourPlayerId: data.playerId }));
   server.publish(data.roomCode, JSON.stringify({
     type: "playerReconnected",

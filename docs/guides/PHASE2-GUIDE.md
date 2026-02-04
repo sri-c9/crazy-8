@@ -7,7 +7,7 @@ Welcome to Phase 2! Now that you have the multiplayer infrastructure working, it
 **Prerequisites:**
 - Phase 1 complete (server, rooms, WebSocket working)
 - Server running with room creation/joining tested
-- Basic understanding of game state management
+- Basic TypeScript and game state management understanding
 
 **What You'll Build:**
 - Card generation system (infinite deck)
@@ -35,25 +35,52 @@ Welcome to Phase 2! Now that you have the multiplayer infrastructure working, it
 
 ### Your Task
 
-Create `game-logic.js` in the project root.
+Create `game-logic.ts` in the project root.
 
 ### 1.1: Define Card Structure
 
 First, understand what a card looks like:
 
-```js
-// Number cards (0-7, 9)
-{ type: "number", color: "red", value: 5 }
+```ts
+// Define card types
+type CardColor = "red" | "blue" | "green" | "yellow";
 
-// Wild card (8)
-{ type: "wild", chosenColor: null }  // Color chosen when played
+interface NumberCard {
+  type: "number";
+  color: CardColor;
+  value: number;
+}
+
+interface WildCard {
+  type: "wild";
+  chosenColor: CardColor | null;
+}
 
 // Special cards (define structure now, implement in Phase 3)
-{ type: "plus2", color: "blue" }
-{ type: "plus4" }  // No color
-{ type: "plus20" }
-{ type: "skip", color: "yellow" }
-{ type: "reverse", color: "green" }
+interface Plus2Card {
+  type: "plus2";
+  color: CardColor;
+}
+
+interface Plus4Card {
+  type: "plus4";
+}
+
+interface Plus20Card {
+  type: "plus20";
+}
+
+interface SkipCard {
+  type: "skip";
+  color: CardColor;
+}
+
+interface ReverseCard {
+  type: "reverse";
+  color: CardColor;
+}
+
+type Card = NumberCard | WildCard | Plus2Card | Plus4Card | Plus20Card | SkipCard | ReverseCard;
 ```
 
 ### 1.2: `generateCard()`
@@ -70,11 +97,11 @@ Write a function that returns a random card. For Phase 2, focus on:
 <details>
 <summary>💡 Hint: Card generation logic</summary>
 
-```js
-const COLORS = ["red", "blue", "green", "yellow"];
+```ts
+const COLORS: CardColor[] = ["red", "blue", "green", "yellow"];
 const NUMBER_VALUES = [0, 1, 2, 3, 4, 5, 6, 7, 9]; // Skip 8 (that's wild)
 
-export function generateCard() {
+export function generateCard(): Card {
   const random = Math.floor(Math.random() * 33); // 0-32
 
   if (random < 32) {
@@ -86,26 +113,26 @@ export function generateCard() {
       type: "number",
       color: COLORS[colorIndex],
       value: NUMBER_VALUES[valueIndex]
-    };
+    } as NumberCard;
   } else {
     // Wild card
     return {
       type: "wild",
       chosenColor: null
-    };
+    } as WildCard;
   }
 }
 ```
 </details>
 
 **Test it:**
-```js
+```ts
 // At bottom of file
 for (let i = 0; i < 10; i++) {
   console.log(generateCard());
 }
 ```
-Run: `bun game-logic.js`
+Run: `bun game-logic.ts`
 
 Expected: Mix of number cards with different colors/values and occasional wilds
 
@@ -121,15 +148,15 @@ Write a function that returns `true` if `card` can be played on `topCard`.
 <details>
 <summary>💡 Hint: Validation logic</summary>
 
-```js
-export function canPlayCard(card, topCard, chosenColor = null) {
+```ts
+export function canPlayCard(card: Card, topCard: Card, chosenColor: CardColor | null = null): boolean {
   // Wild cards always playable
   if (card.type === "wild") {
     return true;
   }
 
   // Get the color to match against
-  const targetColor = topCard.type === "wild" ? chosenColor : topCard.color;
+  const targetColor = topCard.type === "wild" ? chosenColor : ("color" in topCard ? topCard.color : null);
 
   // Number cards: match color OR value
   if (card.type === "number" && topCard.type === "number") {
@@ -137,17 +164,17 @@ export function canPlayCard(card, topCard, chosenColor = null) {
   }
 
   // Same color
-  return card.color === targetColor;
+  return "color" in card && card.color === targetColor;
 }
 ```
 </details>
 
 **Test it:**
-```js
-const red5 = { type: "number", color: "red", value: 5 };
-const red3 = { type: "number", color: "red", value: 3 };
-const blue5 = { type: "number", color: "blue", value: 5 };
-const wild = { type: "wild", chosenColor: null };
+```ts
+const red5: NumberCard = { type: "number", color: "red", value: 5 };
+const red3: NumberCard = { type: "number", color: "red", value: 3 };
+const blue5: NumberCard = { type: "number", color: "blue", value: 5 };
+const wild: WildCard = { type: "wild", chosenColor: null };
 
 console.log(canPlayCard(red3, red5)); // true (same color)
 console.log(canPlayCard(blue5, red5)); // true (same value)
@@ -163,11 +190,28 @@ console.log(canPlayCard(wild, red5)); // true (wild always works)
 
 ### 2.1: Extend Room State
 
-First, update `room-manager.js` to include game fields in the room object:
+First, update `room-manager.ts` to include game fields in the room object:
 
-```js
+```ts
+// Update the Room interface:
+interface Room {
+  roomCode: string;
+  players: Map<string, PlayerInfo>;
+  hostId: string;
+  gameStatus: "waiting" | "playing" | "finished";
+  createdAt: number;
+
+  // Game state (added in Phase 2)
+  currentPlayerIndex: number;
+  direction: 1 | -1;  // 1 = clockwise, -1 = counter-clockwise
+  discardPile: Card[];
+  playerHands: Map<string, Card[]>;
+  lastPlayedColor: CardColor | null;
+  winnerId?: string;
+}
+
 // In createRoom(), add these fields:
-const room = {
+const room: Room = {
   roomCode: code,
   players: new Map(),
   hostId: playerId,
@@ -176,7 +220,7 @@ const room = {
 
   // Game state (added in Phase 2)
   currentPlayerIndex: 0,
-  direction: 1,  // 1 = clockwise, -1 = counter-clockwise
+  direction: 1,
   discardPile: [],
   playerHands: new Map(),
   lastPlayedColor: null
@@ -185,7 +229,7 @@ const room = {
 
 ### 2.2: `startGame(room)`
 
-Write a function in `game-logic.js` that:
+Write a function in `game-logic.ts` that:
 1. Validates minimum 3 players
 2. Deals 7 cards to each player
 3. Generates initial discard pile card (cannot be wild)
@@ -195,8 +239,8 @@ Write a function in `game-logic.js` that:
 <details>
 <summary>💡 Hint: startGame implementation</summary>
 
-```js
-export function startGame(room) {
+```ts
+export function startGame(room: Room): void {
   if (room.players.size < 3) {
     throw new Error("Need at least 3 players");
   }
@@ -204,7 +248,7 @@ export function startGame(room) {
   // Deal 7 cards to each player
   room.playerHands = new Map();
   for (const playerId of room.players.keys()) {
-    const hand = [];
+    const hand: Card[] = [];
     for (let i = 0; i < 7; i++) {
       hand.push(generateCard());
     }
@@ -212,13 +256,13 @@ export function startGame(room) {
   }
 
   // Generate initial discard card (ensure it's not wild)
-  let initialCard;
+  let initialCard: Card;
   do {
     initialCard = generateCard();
   } while (initialCard.type === "wild");
 
   room.discardPile = [initialCard];
-  room.lastPlayedColor = initialCard.color;
+  room.lastPlayedColor = "color" in initialCard ? initialCard.color : null;
   room.currentPlayerIndex = 0;
   room.direction = 1;
   room.gameStatus = "playing";
@@ -230,23 +274,31 @@ export function startGame(room) {
 
 Helper function to get current player ID:
 
-```js
-export function getCurrentPlayer(room) {
+```ts
+export function getCurrentPlayer(room: Room): string {
   const playerIds = Array.from(room.players.keys());
   return playerIds[room.currentPlayerIndex];
 }
 ```
 
 **Test it:**
-```js
+```ts
 // Mock a room
-const mockRoom = {
+const mockRoom: Room = {
+  roomCode: "TEST",
   players: new Map([
-    ["p1", { id: "p1", name: "Alice", avatar: "😎" }],
-    ["p2", { id: "p2", name: "Bob", avatar: "🔥" }],
-    ["p3", { id: "p3", name: "Charlie", avatar: "👻" }]
+    ["p1", { id: "p1", name: "Alice", avatar: "😎", connected: true }],
+    ["p2", { id: "p2", name: "Bob", avatar: "🔥", connected: true }],
+    ["p3", { id: "p3", name: "Charlie", avatar: "👻", connected: true }]
   ]),
-  gameStatus: "waiting"
+  hostId: "p1",
+  gameStatus: "waiting",
+  createdAt: Date.now(),
+  currentPlayerIndex: 0,
+  direction: 1,
+  discardPile: [],
+  playerHands: new Map(),
+  lastPlayedColor: null
 };
 
 startGame(mockRoom);
@@ -269,8 +321,8 @@ Write a function that moves to the next player:
 <details>
 <summary>💡 Hint: Turn advancement</summary>
 
-```js
-export function advanceTurn(room) {
+```ts
+export function advanceTurn(room: Room): void {
   const playerCount = room.players.size;
 
   if (room.direction === 1) {
@@ -301,8 +353,8 @@ Big function! This handles playing a card:
 <details>
 <summary>💡 Hint: playCard implementation</summary>
 
-```js
-export function playCard(room, playerId, cardIndex, chosenColor = null) {
+```ts
+export function playCard(room: Room, playerId: string, cardIndex: number, chosenColor: CardColor | null = null): void {
   // Validate turn
   if (getCurrentPlayer(room) !== playerId) {
     throw new Error("Not your turn");
@@ -335,7 +387,7 @@ export function playCard(room, playerId, cardIndex, chosenColor = null) {
     card.chosenColor = chosenColor;
     room.lastPlayedColor = chosenColor;
   } else {
-    room.lastPlayedColor = card.color;
+    room.lastPlayedColor = "color" in card ? card.color : null;
   }
 
   room.discardPile.push(card);
@@ -365,14 +417,17 @@ Simpler function:
 <details>
 <summary>💡 Hint: drawCard implementation</summary>
 
-```js
-export function drawCard(room, playerId) {
+```ts
+export function drawCard(room: Room, playerId: string): Card {
   if (getCurrentPlayer(room) !== playerId) {
     throw new Error("Not your turn");
   }
 
   const card = generateCard();
   const hand = room.playerHands.get(playerId);
+  if (!hand) {
+    throw new Error("Player has no hand");
+  }
   hand.push(card);
 
   advanceTurn(room);
@@ -383,7 +438,7 @@ export function drawCard(room, playerId) {
 </details>
 
 **Test the turn system:**
-```js
+```ts
 // After startGame on mockRoom
 const p1 = "p1", p2 = "p2", p3 = "p3";
 
@@ -391,6 +446,8 @@ console.log("Turn 1:", getCurrentPlayer(mockRoom)); // p1
 
 // Find a playable card in p1's hand
 const hand = mockRoom.playerHands.get(p1);
+if (!hand) throw new Error("No hand");
+
 const topCard = mockRoom.discardPile[mockRoom.discardPile.length - 1];
 const playableIndex = hand.findIndex(card => canPlayCard(card, topCard, mockRoom.lastPlayedColor));
 
@@ -409,14 +466,14 @@ if (playableIndex >= 0) {
 
 **Goal:** Connect game logic to WebSocket handlers.
 
-### 4.1: Update `room-manager.js`
+### 4.1: Update `room-manager.ts`
 
 Add a function to start the game:
 
-```js
-import { startGame as startGameLogic } from "./game-logic.js";
+```ts
+import { startGame as startGameLogic } from "./game-logic.ts";
 
-export function startGameInRoom(roomCode, playerId) {
+export function startGameInRoom(roomCode: string, playerId: string): void {
   const room = rooms.get(roomCode);
 
   if (!room) throw new Error("Room not found");
@@ -427,13 +484,23 @@ export function startGameInRoom(roomCode, playerId) {
 }
 ```
 
-### 4.2: Add WebSocket Handler in `server.js`
+### 4.2: Add WebSocket Handler in `server.ts`
 
 Add new message handlers:
 
-```js
-import { playCard, drawCard } from "./game-logic.js";
-import { startGameInRoom } from "./room-manager.js";
+```ts
+import { playCard, drawCard, getCurrentPlayer } from "./game-logic.ts";
+import { startGameInRoom, getRoom } from "./room-manager.ts";
+
+// Update IncomingMessage interface:
+interface IncomingMessage {
+  action: string;
+  playerName?: string;
+  avatar?: string;
+  roomCode?: string;
+  cardIndex?: number;
+  chosenColor?: CardColor;
+}
 
 // In message handler, add cases:
 case "startGame":
@@ -454,9 +521,13 @@ case "draw":
 <details>
 <summary>💡 Hint: handleStartGame</summary>
 
-```js
-function handleStartGame(ws, msg) {
+```ts
+function handleStartGame(ws: ServerWebSocket<WebSocketData>, msg: IncomingMessage) {
   try {
+    if (!ws.data.roomCode || !ws.data.playerId) {
+      throw new Error("Not in a room");
+    }
+
     startGameInRoom(ws.data.roomCode, ws.data.playerId);
 
     // Broadcast game started
@@ -468,7 +539,7 @@ function handleStartGame(ws, msg) {
     // Send initial state to all players
     broadcastGameState(ws.data.roomCode);
   } catch (error) {
-    ws.send(JSON.stringify({ type: "error", message: error.message }));
+    ws.send(JSON.stringify({ type: "error", message: (error as Error).message }));
   }
 }
 ```
@@ -484,8 +555,8 @@ This is important! Each player needs to see:
 <details>
 <summary>💡 Hint: broadcastGameState</summary>
 
-```js
-function broadcastGameState(roomCode) {
+```ts
+function broadcastGameState(roomCode: string) {
   const room = getRoom(roomCode);
   if (!room) return;
 
@@ -527,15 +598,21 @@ function broadcastGameState(roomCode) {
 <details>
 <summary>💡 Hint: handlePlay</summary>
 
-```js
-function handlePlay(ws, msg) {
+```ts
+function handlePlay(ws: ServerWebSocket<WebSocketData>, msg: IncomingMessage) {
   try {
+    if (!ws.data.roomCode || !ws.data.playerId) {
+      throw new Error("Not in a room");
+    }
+
     const room = getRoom(ws.data.roomCode);
-    playCard(room, ws.data.playerId, msg.cardIndex, msg.chosenColor);
+    if (!room) throw new Error("Room not found");
+
+    playCard(room, ws.data.playerId, msg.cardIndex!, msg.chosenColor);
 
     broadcastGameState(ws.data.roomCode);
   } catch (error) {
-    ws.send(JSON.stringify({ type: "error", message: error.message }));
+    ws.send(JSON.stringify({ type: "error", message: (error as Error).message }));
   }
 }
 ```
@@ -544,10 +621,16 @@ function handlePlay(ws, msg) {
 <details>
 <summary>💡 Hint: handleDraw</summary>
 
-```js
-function handleDraw(ws, msg) {
+```ts
+function handleDraw(ws: ServerWebSocket<WebSocketData>, msg: IncomingMessage) {
   try {
+    if (!ws.data.roomCode || !ws.data.playerId) {
+      throw new Error("Not in a room");
+    }
+
     const room = getRoom(ws.data.roomCode);
+    if (!room) throw new Error("Room not found");
+
     const card = drawCard(room, ws.data.playerId);
 
     // Send the drawn card to the player
@@ -555,7 +638,7 @@ function handleDraw(ws, msg) {
 
     broadcastGameState(ws.data.roomCode);
   } catch (error) {
-    ws.send(JSON.stringify({ type: "error", message: error.message }));
+    ws.send(JSON.stringify({ type: "error", message: (error as Error).message }));
   }
 }
 ```
@@ -563,7 +646,7 @@ function handleDraw(ws, msg) {
 
 ---
 
-## Step 5: Add Minimal Game UI
+## Final Checkpoint: Play a Game!
 
 **Goal:** Update `public/index.html` to test gameplay.
 
@@ -713,33 +796,38 @@ document.getElementById("start-game-btn").onclick = () => {
 
 ---
 
-## Final Checkpoint: Play a Game!
+## Final Checkpoint: Test the Backend
 
-Test the full flow:
+Test using browser DevTools console or a REST client:
 
-1. **Create room** (tab 1, Alice)
-2. **Join room** (tabs 2-3, Bob and Charlie)
-3. **Start game** (Alice clicks Start Game)
-4. **Play cards:**
-   - Current player clicks a playable card
-   - If no playable cards, click Draw
-   - Turn advances
-5. **Wild cards:**
-   - When playing wild, enter color in prompt
-6. **Win condition:**
-   - Play all cards → see winner alert
+1. **Create room** with 3+ players
+2. **Start game** (host only)
+3. **Test play card:**
+   ```js
+   ws.send(JSON.stringify({ action: "play", cardIndex: 0 }));
+   ```
+4. **Test draw card:**
+   ```js
+   ws.send(JSON.stringify({ action: "draw" }));
+   ```
+5. **Verify game state broadcasts** show correct:
+   - Current player ID
+   - Top card
+   - Player card counts
+   - Hand data (only for current player)
 
 **Debug checklist:**
 - ✅ Only current player can play/draw
-- ✅ Only valid cards are enabled
-- ✅ Wild cards prompt for color
+- ✅ Card validation works correctly
 - ✅ Turn advances after play/draw
 - ✅ Winner detected when hand empty
+- ✅ Wild cards require chosenColor parameter
 
 ---
 
 ## What You Built
 
+- ✅ TypeScript card type system (discriminated unions)
 - ✅ Card generation system (infinite deck)
 - ✅ Card validation (color/number matching)
 - ✅ Turn order with direction support
@@ -748,7 +836,7 @@ Test the full flow:
 - ✅ Draw card logic
 - ✅ Win condition detection
 - ✅ Game state broadcasting
-- ✅ Functional test UI
+- ✅ Type-safe server handlers
 
 ## Next Steps
 

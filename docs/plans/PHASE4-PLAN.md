@@ -2,6 +2,8 @@
 
 **STATUS: TENTATIVE** — This plan will be refined when Phase 4 begins.
 
+**NOTE: This phase is primarily frontend-focused and will be handled by Claude Code.**
+
 ## Goal
 
 Replace the minimal placeholder UI with a proper game interface: lobby screen with emoji avatar selection, game board layout, hand rendering, discard/draw piles, opponent info display. No animations yet — just clean, functional layout optimized for mobile screens.
@@ -76,7 +78,7 @@ Replace the minimal placeholder UI with a proper game interface: lobby screen wi
     </div>
   </div>
 
-  <script src="lobby.js"></script>
+  <script src="lobby.ts"></script>
 </body>
 </html>
 ```
@@ -170,7 +172,7 @@ Replace the minimal placeholder UI with a proper game interface: lobby screen wi
     </div>
   </div>
 
-  <script src="game-client.js"></script>
+  <script src="game-client.ts"></script>
 </body>
 </html>
 ```
@@ -262,7 +264,9 @@ Replace the minimal placeholder UI with a proper game interface: lobby screen wi
 }
 ```
 
-### 4. `public/lobby.js` — Lobby Client Logic (NEW)
+### 4. `public/lobby.ts` — Lobby Client Logic (NEW)
+
+**Note:** Frontend implementation will be handled by Claude Code.
 
 **Responsibilities:**
 - Connect to WebSocket (`/ws`)
@@ -272,13 +276,17 @@ Replace the minimal placeholder UI with a proper game interface: lobby screen wi
 - Navigate to `game.html` when game starts
 
 **Key Functions:**
-- `selectAvatar(emoji)` — Highlight selected avatar
-- `createRoom()` — Send `{ action: "create", playerName, avatar }`
-- `joinRoom(code)` — Send `{ action: "join", roomCode, playerName, avatar }`
-- `updatePlayerList(players)` — Render player cards with avatars
-- `onGameStarted()` — Redirect to `game.html` with roomCode in URL params
+```ts
+function selectAvatar(emoji: string): void
+function createRoom(): void
+function joinRoom(code: string): void
+function updatePlayerList(players: PlayerInfo[]): void
+function onGameStarted(): void
+```
 
-### 5. `public/game-client.js` — Game Client Logic (NEW)
+### 5. `public/game-client.ts` — Game Client Logic (NEW)
+
+**Note:** Frontend implementation will be handled by Claude Code.
 
 **Responsibilities:**
 - Connect to WebSocket (resume session via URL params)
@@ -289,13 +297,15 @@ Replace the minimal placeholder UI with a proper game interface: lobby screen wi
 - Display game over screen
 
 **Key Functions:**
-- `renderGameState(state, yourPlayerId)` — Update entire UI from state
-- `renderHand(cards, topCard, pendingDraws)` — Render cards with `.playable` class
-- `renderOpponents(players, currentPlayerId)` — Show opponents with turn indicator
-- `playCard(index, chosenColor)` — Send `{ action: "play", cardIndex, chosenColor }`
-- `drawCard()` — Send `{ action: "draw" }`
-- `showColorPicker(cardIndex)` — Modal for wild card color selection
-- `onGameOver(winner)` — Display game over overlay
+```ts
+function renderGameState(state: GameState, yourPlayerId: string): void
+function renderHand(cards: Card[], topCard: Card, pendingDraws: number): void
+function renderOpponents(players: PlayerInfo[], currentPlayerId: string): void
+function playCard(index: number, chosenColor?: CardColor): void
+function drawCard(): void
+function showColorPicker(cardIndex: number): void
+function onGameOver(winner: PlayerInfo): void
+```
 
 ## Navigation Flow
 
@@ -323,7 +333,7 @@ index.html (reset state)
    - Layout structure (flexbox)
    - Mobile breakpoints
 
-2. **`public/index.html` + `lobby.js` — Lobby screen**
+2. **`public/index.html` + `lobby.ts` — Lobby screen**
    - Avatar picker
    - Room creation/joining
    - Waiting room with player list
@@ -331,7 +341,7 @@ index.html (reset state)
 3. **`public/game.html` — Game board structure**
    - HTML skeleton with placeholder content
 
-4. **`public/game-client.js` — Game rendering**
+4. **`public/game-client.ts` — Game rendering**
    - State rendering logic
    - Hand rendering with playable highlighting
    - Opponent display

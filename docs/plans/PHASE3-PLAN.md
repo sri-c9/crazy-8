@@ -12,16 +12,16 @@ Implement "Insane" rule variants for special cards: plus-stacking (any +card def
 
 ## Files to Modify
 
-### 1. `game-logic.js` — Special Card Logic (MODIFY)
+### 1. `game-logic.ts` — Special Card Logic (MODIFY)
 
 **New/Modified Functions:**
 
-- `canPlayCard(card: Card, topCard: Card, room: Room) → boolean`
+- `canPlayCard(card: Card, topCard: Card, room: Room): boolean`
   - **NEW RULE:** If `room.pendingDraws > 0`, only +cards can be played (deflection)
   - Any +card (+2, +4, +20) can be played on any +card (ignore color matching)
   - Regular matching rules apply otherwise
 
-- `playCard(room: Room, playerId: string, cardIndex: number, chosenColor?: string) → { skipCount: number, reverseApplied: boolean }`
+- `playCard(room: Room, playerId: string, cardIndex: number, chosenColor?: string): { skipCount: number, reverseApplied: boolean }`
   - **Plus cards (+2, +4, +20):**
     - If previous card was also a +card, add to `pendingDraws` (stacking)
     - If NOT stacking, next player must draw or stack with another +card
@@ -39,7 +39,7 @@ Implement "Insane" rule variants for special cards: plus-stacking (any +card def
 
   - Returns metadata about skip/reverse effects for broadcasting
 
-- `drawCard(room: Room, playerId: string) → Card[]`
+- `drawCard(room: Room, playerId: string): Card[]`
   - **CHANGE RETURN TYPE:** Returns array of cards (for multi-draw)
   - If `room.pendingDraws > 0`:
     - Draw that many cards
@@ -47,23 +47,23 @@ Implement "Insane" rule variants for special cards: plus-stacking (any +card def
     - Advance turn
   - Otherwise, draw 1 card and advance turn
 
-- `resolvePendingDraws(room: Room, playerId: string) → void`
+- `resolvePendingDraws(room: Room, playerId: string): void`
   - Called when player can't/won't stack +cards
   - Forces draw of `pendingDraws` cards
   - Resets `pendingDraws` to 0
   - Advances turn
 
 **Room State Changes:**
-```js
-{
+```ts
+interface Room {
   // ... existing fields
-  pendingDraws: number,        // Accumulated +card draws (0 if none pending)
-  reverseStackCount: number,   // Count of consecutive reverses (max 4)
-  lastSpecialCard: string | null  // "plus" | "reverse" | null (for UI hints)
+  pendingDraws: number;        // Accumulated +card draws (0 if none pending)
+  reverseStackCount: number;   // Count of consecutive reverses (max 4)
+  lastSpecialCard: "plus" | "reverse" | null;  // For UI hints
 }
 ```
 
-### 2. `server.js` — Special Card Broadcasting (MODIFY)
+### 2. `server.ts` — Special Card Broadcasting (MODIFY)
 
 **Enhanced Game State Messages:**
 
@@ -89,6 +89,8 @@ When player is forced to draw multiple cards:
 - Pending draws indicator: "⚠️ +8 cards pending — play a +card or draw!"
 - Reverse stack counter: "🔄 3/4 reverses"
 - Skip announcement: "⏭️ Skipped 2 players"
+
+**Note:** Frontend UI implementation will be handled by Claude Code.
 
 **JavaScript Updates:**
 - Display pending draws warning
@@ -167,28 +169,28 @@ Unlike standard Crazy 8s (skip 1), this variant skips 2 players:
 - Turn advances to index 3 (skips 1 and 2)
 
 **Wrap-around handling:**
-```js
+```ts
 currentPlayerIndex = (currentPlayerIndex + 3) % playerCount;
 ```
 
 ## Implementation Order
 
-1. **`game-logic.js` — Plus-stacking logic**
+1. **`game-logic.ts` — Plus-stacking logic**
    - Modify `canPlayCard()` to allow any +card when `pendingDraws > 0`
    - Update `playCard()` to accumulate `pendingDraws`
    - Update `drawCard()` to handle multi-card draws
 
-2. **`game-logic.js` — Reverse stack limit**
+2. **`game-logic.ts` — Reverse stack limit**
    - Track `reverseStackCount` in room state
    - Increment on reverse play
    - Reset after 4 or when non-reverse played
    - Validate max 4 limit in `canPlayCard()`
 
-3. **`game-logic.js` — Skip 2 players**
+3. **`game-logic.ts` — Skip 2 players**
    - Modify turn advancement in `playCard()` for skip cards
    - Advance by 3 instead of 1
 
-4. **`server.js` — Enhanced state broadcasting**
+4. **`server.ts` — Enhanced state broadcasting**
    - Include `pendingDraws` and `reverseStackCount` in state messages
    - Send special effect announcements
 
@@ -196,6 +198,7 @@ currentPlayerIndex = (currentPlayerIndex + 3) % playerCount;
    - Display pending draws warning
    - Show reverse stack progress
    - Highlight stackable cards in hand
+   - Note: Frontend UI implementation will be handled by Claude Code.
 
 ## Testing & Verification
 

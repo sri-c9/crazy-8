@@ -2,6 +2,8 @@
 
 **STATUS: TENTATIVE** — This plan will be refined when Phase 6 begins.
 
+**NOTE: This phase is entirely frontend-focused and will be handled by Claude Code.**
+
 ## Goal
 
 Add polish with CSS animations, mobile-responsive touches, card play animations, smooth transitions, haptic feedback, and accessibility improvements. Make the game feel delightful to play on mobile devices.
@@ -13,6 +15,8 @@ Add polish with CSS animations, mobile-responsive touches, card play animations,
 ## Files to Modify
 
 ### 1. `public/styles.css` — Animation System (MODIFY)
+
+**Note:** All CSS animations and styling will be handled by Claude Code.
 
 **New Animations:**
 
@@ -161,39 +165,25 @@ Add polish with CSS animations, mobile-responsive touches, card play animations,
 }
 ```
 
-### 2. `public/game-client.js` — Animation Triggers (MODIFY)
+### 2. `public/game-client.ts` — Animation Triggers (MODIFY)
+
+**Note:** All animation logic will be handled by Claude Code.
 
 **Animation Trigger Functions:**
 
-- `playCardWithAnimation(cardIndex, chosenColor)`
-  - Add `.playing` class to card element
-  - Wait 400ms (animation duration)
-  - Remove card from hand
-  - Send WebSocket message
-  - Update discard pile
-
-- `drawCardWithAnimation()`
-  - Add spinner to draw pile
-  - Send WebSocket message
-  - On response: add `.drawing` class to new card
-  - Append to hand
-
-- `flipWildCard(cardIndex, newColor)`
-  - Add `.flipping` class
-  - Change card background mid-flip (at 50%)
-  - Update color after flip completes
-
-- `showSpecialEffect(effect, data)`
-  - Plus-stack: shake pending alert
-  - Skip: bounce opponent avatars
-  - Reverse: spin direction indicator
-  - Duration: 600ms
+```ts
+function playCardWithAnimation(cardIndex: number, chosenColor?: CardColor): Promise<void>
+function drawCardWithAnimation(): Promise<void>
+function flipWildCard(cardIndex: number, newColor: CardColor): Promise<void>
+function showSpecialEffect(effect: "plus" | "skip" | "reverse", data: any): void
+function triggerHaptic(): void
+```
 
 **Haptic Feedback (Mobile):**
 
-```js
+```ts
 // Trigger vibration on card play (if supported)
-function triggerHaptic() {
+function triggerHaptic(): void {
   if (navigator.vibrate) {
     navigator.vibrate(50);  // 50ms short vibration
   }
@@ -207,6 +197,8 @@ playCardWithAnimation(index, color).then(() => {
 
 ### 3. Sound Effects (OPTIONAL)
 
+**Note:** Sound implementation will be handled by Claude Code.
+
 **Audio Files to Add:**
 
 - `sounds/play-card.mp3` — Soft "snap" when card played
@@ -217,8 +209,16 @@ playCardWithAnimation(index, color).then(() => {
 
 **Implementation:**
 
-```js
-const sounds = {
+```ts
+interface SoundMap {
+  playCard: HTMLAudioElement;
+  drawCard: HTMLAudioElement;
+  specialCard: HTMLAudioElement;
+  win: HTMLAudioElement;
+  join: HTMLAudioElement;
+}
+
+const sounds: SoundMap = {
   playCard: new Audio('sounds/play-card.mp3'),
   drawCard: new Audio('sounds/draw-card.mp3'),
   specialCard: new Audio('sounds/special-card.mp3'),
@@ -226,7 +226,7 @@ const sounds = {
   join: new Audio('sounds/join.mp3')
 };
 
-function playSound(soundName) {
+function playSound(soundName: keyof SoundMap): void {
   if (soundsEnabled) {  // User preference toggle
     sounds[soundName].currentTime = 0;  // Reset to start
     sounds[soundName].play();
@@ -242,6 +242,8 @@ Add settings button in game screen:
 - Store preferences in `localStorage`
 
 ### 4. Accessibility Improvements
+
+**Note:** Accessibility features will be handled by Claude Code.
 
 **ARIA Labels:**
 
@@ -269,9 +271,9 @@ Add settings button in game screen:
 
 **Keyboard Navigation:**
 
-```js
+```ts
 // Allow card selection with arrow keys + Enter
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', (e: KeyboardEvent): void => {
   if (!yourTurn) return;
 
   if (e.key === 'ArrowLeft') selectPreviousCard();
@@ -308,6 +310,8 @@ document.addEventListener('keydown', (e) => {
 
 ### 5. Loading States & Skeletons
 
+**Note:** Loading states and skeleton screens will be handled by Claude Code.
+
 **Skeleton Screen for Initial Load:**
 
 ```html
@@ -335,6 +339,8 @@ document.addEventListener('keydown', (e) => {
 Replace skeleton with actual content when state loads.
 
 ### 6. Mobile-Specific Features
+
+**Note:** Mobile-specific features will be handled by Claude Code.
 
 **Pull-to-Refresh (Disabled):**
 

@@ -15,7 +15,7 @@ Bun's WebSocket API has native topic-based pub/sub (similar to Redis Pub/Sub or 
 
 ## Files to Create
 
-### 1. `server.js` — Main Bun server
+### 1. `server.ts` — Main Bun server
 
 **Responsibilities:**
 - Set up `Bun.serve()` with HTTP fetch handler + WebSocket handler
@@ -39,66 +39,97 @@ Parse incoming JSON messages and switch on `action` field:
 
 **Port:** 3000 (configurable via environment variable)
 
-### 2. `room-manager.js` — Room state management
+### 2. `room-manager.ts` — Room state management
 
 Pure logic module with no dependencies. Manages in-memory room state.
 
 **Data Structure:**
-```js
+```ts
 // Module-level Map
-const rooms = new Map(); // Map<roomCode, Room>
+const rooms = new Map<string, Room>();
 
-// Room object structure
-{
-  roomCode: string,         // 4-character uppercase code (e.g., "ABXY")
-  players: Map<string, {    // Map<playerId, PlayerInfo>
-    id: string,             // Unique player ID
-    name: string,           // Display name
-    avatar: string,         // Emoji avatar (e.g., "😎", "🔥", "👻")
-    connected: boolean      // Connection status
-  }>,
-  hostId: string,           // Player who created the room
-  gameStatus: 'waiting',    // Only 'waiting' in Phase 1 (game not started)
-  createdAt: number         // Timestamp for cleanup
+// Type definitions
+interface PlayerInfo {
+  id: string;             // Unique player ID
+  name: string;           // Display name
+  avatar: string;         // Emoji avatar (e.g., "😎", "🔥", "👻")
+  connected: boolean;     // Connection status
+}
+
+interface Room {
+  roomCode: string;         // 4-character uppercase code (e.g., "ABXY")
+  players: Map<string, PlayerInfo>;
+  hostId: string;           // Player who created the room
+  gameStatus: "waiting";    // Only 'waiting' in Phase 1 (game not started)
+  createdAt: number;        // Timestamp for cleanup
 }
 ```
 
 **Exported Functions:**
 
-- `createRoom(playerName: string, avatar: string) → { roomCode: string, playerId: string }`
-  - Generates unique room code
-  - Creates room with host player (name + emoji avatar)
-  - Returns room code and player ID
+```ts
+export function createRoom(
+  playerName: string,
+  avatar: string
+): { roomCode: string; playerId: string }
+```
+- Generates unique room code
+- Creates room with host player (name + emoji avatar)
+- Returns room code and player ID
 
-- `joinRoom(roomCode: string, playerName: string, avatar: string) → { playerId: string }`
-  - Validates: room exists, not full (max 6 players), game not started
-  - Adds player to room (name + emoji avatar)
-  - Returns player ID
-  - Throws error if validation fails
+```ts
+export function joinRoom(
+  roomCode: string,
+  playerName: string,
+  avatar: string
+): { playerId: string }
+```
+- Validates: room exists, not full (max 6 players), game not started
+- Adds player to room (name + emoji avatar)
+- Returns player ID
+- Throws error if validation fails
 
-- `leaveRoom(roomCode: string, playerId: string) → void`
-  - Removes player from room
-  - Destroys room if empty
-  - Transfers host if current host leaves
+```ts
+export function leaveRoom(roomCode: string, playerId: string): void
+```
+- Removes player from room
+- Destroys room if empty
+- Transfers host if current host leaves
 
-- `disconnectPlayer(roomCode: string, playerId: string) → void`
-  - Marks player as `connected: false`
-  - Keeps player in room for potential reconnection
+```ts
+export function disconnectPlayer(roomCode: string, playerId: string): void
+```
+- Marks player as `connected: false`
+- Keeps player in room for potential reconnection
 
-- `reconnectPlayer(roomCode: string, playerId: string) → void`
-  - Marks player as `connected: true`
+```ts
+export function reconnectPlayer(roomCode: string, playerId: string): void
+```
+- Marks player as `connected: true`
 
-- `getRoom(roomCode: string) → Room | undefined`
-  - Returns room object or undefined
+```ts
+export function getRoom(roomCode: string): Room | undefined
+```
+- Returns room object or undefined
 
-- `getRoomPlayerList(roomCode: string) → Array<{ id, name, avatar, connected, isHost }>`
-  - Returns sanitized player list for broadcasting
-  - Includes `isHost` flag for UI highlighting
+```ts
+export function getRoomPlayerList(roomCode: string): Array<{
+  id: string;
+  name: string;
+  avatar: string;
+  connected: boolean;
+  isHost: boolean;
+}>
+```
+- Returns sanitized player list for broadcasting
+- Includes `isHost` flag for UI highlighting
 
-- `generateRoomCode() → string`
-  - Generates random 4-character uppercase code
-  - Ensures no collision with existing rooms
-  - Format: `[A-Z]{4}` (e.g., "ABXY", "QWER")
+```ts
+function generateRoomCode(): string
+```
+- Generates random 4-character uppercase code
+- Ensures no collision with existing rooms
+- Format: `[A-Z]{4}` (e.g., "ABXY", "QWER")
 
 **Room Code Generation Strategy:**
 - 4 uppercase letters: 26^4 = 456,976 possible codes
@@ -124,6 +155,8 @@ A functional placeholder for testing. Will be replaced with proper UI in Phase 4
 - Update player list when broadcast received
 
 **Styling:** Minimal inline styles for basic readability
+
+_Note: Frontend UI implementation will be handled by Claude Code. This placeholder allows backend testing._
 
 ### 4. `public/styles.css` — Minimal Styles (Placeholder)
 
@@ -203,14 +236,21 @@ Will be replaced in Phase 4 with proper mobile-optimized design.
 
 When upgrading a WebSocket connection, attach metadata to `ws.data`:
 
-```js
+```ts
+interface WebSocketData {
+  playerId: string | null;
+  playerName: string | null;
+  avatar: string | null;
+  roomCode: string | null;
+}
+
 server.upgrade(req, {
   data: {
     playerId: null,    // Set after create/join succeeds
     playerName: null,  // Set after create/join succeeds
     avatar: null,      // Set after create/join succeeds
     roomCode: null     // Set after create/join succeeds
-  }
+  } as WebSocketData
 });
 ```
 
@@ -222,20 +262,20 @@ After `create` or `join` succeeds:
 
 ## Implementation Order
 
-1. **`room-manager.js`** first
+1. **`room-manager.ts`** first
    - Pure logic, no dependencies
    - Can be tested in isolation with console logs
    - Write helper function `generateRoomCode()` first
    - Then implement create/join/leave functions
 
-2. **`server.js`** second
+2. **`server.ts`** second
    - Import room-manager
    - Set up basic HTTP server with static file serving
    - Add WebSocket upgrade logic
    - Wire up message handlers
 
 3. **`public/index.html`** + **`public/styles.css`** last
-   - Simple test UI
+   - Simple test UI (handled by Claude Code)
    - Just enough to verify server works
 
 ## Testing & Verification
@@ -270,7 +310,7 @@ After `create` or `join` succeeds:
 
 ### Console Debugging
 
-Add console.log statements in server.js to trace:
+Add console.log statements in server.ts to trace:
 - WebSocket connections
 - Message routing
 - Room creation/join/leave events

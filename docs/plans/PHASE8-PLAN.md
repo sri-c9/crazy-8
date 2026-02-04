@@ -16,14 +16,14 @@ Add an admin panel for game configuration: feature toggles, custom rule adjustme
 
 **Secret Password Route:**
 
-```js
-// In server.js
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "insane8admin";
+```ts
+// In server.ts
+const ADMIN_PASSWORD: string = process.env.ADMIN_PASSWORD || "insane8admin";
 
 // Add HTTP route
 if (req.url.startsWith('/admin')) {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const password = url.searchParams.get('password');
+  const url: URL = new URL(req.url, `http://${req.headers.host}`);
+  const password: string | null = url.searchParams.get('password');
 
   if (password !== ADMIN_PASSWORD) {
     return new Response('Unauthorized', { status: 401 });
@@ -44,6 +44,8 @@ https://abc123.ngrok.io/admin?password=insane8admin
 - Don't expose ADMIN_PASSWORD in public repos (use `.env`)
 
 ### 2. `public/admin.html` — Admin Panel UI (NEW)
+
+**Note:** Frontend UI implementation (admin.html, admin-client.ts) will be handled by Claude Code.
 
 **Features:**
 
@@ -196,27 +198,27 @@ https://abc123.ngrok.io/admin?password=insane8admin
     </div>
   </div>
 
-  <script src="admin-client.js"></script>
+  <script src="admin-client.ts"></script>
 </body>
 </html>
 ```
 
-### 3. `server.js` — Admin WebSocket Endpoints (MODIFY)
+### 3. `server.ts` — Admin WebSocket Endpoints (MODIFY)
 
 **New WebSocket Actions:**
 
-```js
+```ts
 // Admin-only actions
 case "adminListRooms":
   if (!isAdmin(ws)) return sendError("Unauthorized");
-  const rooms = room-manager.getAllRooms();
+  const rooms: Room[] = roomManager.getAllRooms();
   ws.send(JSON.stringify({ type: "roomsList", rooms }));
   break;
 
 case "adminKickPlayer":
   if (!isAdmin(ws)) return sendError("Unauthorized");
-  const { roomCode, playerId } = data;
-  room-manager.kickPlayer(roomCode, playerId);
+  const { roomCode, playerId }: { roomCode: string; playerId: string } = data;
+  roomManager.kickPlayer(roomCode, playerId);
   server.publish(roomCode, JSON.stringify({
     type: "playerKicked",
     playerId,
@@ -226,7 +228,7 @@ case "adminKickPlayer":
 
 case "adminEndGame":
   if (!isAdmin(ws)) return sendError("Unauthorized");
-  room-manager.endGame(data.roomCode);
+  roomManager.endGame(data.roomCode);
   server.publish(data.roomCode, JSON.stringify({
     type: "gameEnded",
     reason: "Ended by admin"
@@ -235,7 +237,7 @@ case "adminEndGame":
 
 case "adminDeleteRoom":
   if (!isAdmin(ws)) return sendError("Unauthorized");
-  room-manager.deleteRoom(data.roomCode);
+  roomManager.deleteRoom(data.roomCode);
   break;
 
 case "adminUpdateSettings":
@@ -247,8 +249,8 @@ case "adminUpdateSettings":
 
 **Admin Auth Check:**
 
-```js
-function isAdmin(ws) {
+```ts
+function isAdmin(ws: ServerWebSocket): boolean {
   return ws.data.isAdmin === true;
 }
 
@@ -261,12 +263,22 @@ server.upgrade(req, {
 });
 ```
 
-### 4. `game-settings.js` — Configurable Rules (NEW)
+### 4. `game-settings.ts` — Configurable Rules (NEW)
 
 **Centralized Settings Object:**
 
-```js
-const settings = {
+```ts
+interface GameSettings {
+  plusStacking: boolean;
+  reverseLimitEnabled: boolean;
+  reverseStackMax: number;
+  skipCount: number;
+  startingHandSize: number;
+  maxRoomSize: number;
+  wildCardsEnabled: boolean;
+}
+
+const settings: GameSettings = {
   plusStacking: true,
   reverseLimitEnabled: true,
   reverseStackMax: 4,
@@ -276,16 +288,16 @@ const settings = {
   wildCardsEnabled: true
 };
 
-export function getSettings() {
+export function getSettings(): GameSettings {
   return { ...settings };  // Return copy
 }
 
-export function updateSettings(newSettings) {
+export function updateSettings(newSettings: Partial<GameSettings>): void {
   Object.assign(settings, newSettings);
   console.log("Settings updated:", settings);
 }
 
-export function resetToDefaults() {
+export function resetToDefaults(): void {
   settings.plusStacking = true;
   settings.reverseLimitEnabled = true;
   settings.reverseStackMax = 4;
@@ -296,23 +308,23 @@ export function resetToDefaults() {
 }
 ```
 
-**Use in `game-logic.js`:**
+**Use in `game-logic.ts`:**
 
-```js
-import { getSettings } from './game-settings.js';
+```ts
+import { getSettings, GameSettings } from './game-settings.ts';
 
-function startGame(room) {
-  const settings = getSettings();
-  const handSize = settings.startingHandSize;
+function startGame(room: Room): void {
+  const settings: GameSettings = getSettings();
+  const handSize: number = settings.startingHandSize;
 
   // Deal cards based on settings
-  room.players.forEach(player => {
+  room.players.forEach((player: PlayerInfo) => {
     player.hand = Array(handSize).fill(null).map(() => generateCard());
   });
 }
 
-function canPlayCard(card, topCard, room) {
-  const settings = getSettings();
+function canPlayCard(card: Card, topCard: Card, room: Room): boolean {
+  const settings: GameSettings = getSettings();
 
   if (room.pendingDraws > 0 && !settings.plusStacking) {
     return isPlusCard(card);  // Must play +card if stacking disabled
@@ -322,7 +334,9 @@ function canPlayCard(card, topCard, room) {
 }
 ```
 
-### 5. `public/admin-client.js` — Admin Client Logic (NEW)
+### 5. `public/admin-client.ts` — Admin Client Logic (NEW)
+
+**Note:** Frontend implementation will be handled by Claude Code.
 
 **Responsibilities:**
 
@@ -334,13 +348,13 @@ function canPlayCard(card, topCard, room) {
 
 **Key Functions:**
 
-```js
-function fetchRooms() {
+```ts
+function fetchRooms(): void {
   ws.send(JSON.stringify({ action: "adminListRooms" }));
 }
 
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
+ws.onmessage = (event: MessageEvent): void => {
+  const data: any = JSON.parse(event.data);
 
   if (data.type === "roomsList") {
     renderRoomsList(data.rooms);
@@ -351,16 +365,18 @@ ws.onmessage = (event) => {
   }
 };
 
-function renderRoomsList(rooms) {
-  const container = document.getElementById('rooms-list');
-  container.innerHTML = rooms.map(room => `
+function renderRoomsList(rooms: Room[]): void {
+  const container: HTMLElement | null = document.getElementById('rooms-list');
+  if (!container) return;
+
+  container.innerHTML = rooms.map((room: Room) => `
     <div class="room-card">
       <div class="room-header">
         <span class="room-code">${room.roomCode}</span>
         <span class="room-status ${room.gameStatus}">${room.gameStatus}</span>
       </div>
       <div class="room-players">
-        <p>Players: ${room.players.map(p => `${p.name} (${p.avatar})`).join(', ')}</p>
+        <p>Players: ${Array.from(room.players.values()).map((p: PlayerInfo) => `${p.name} (${p.avatar})`).join(', ')}</p>
       </div>
       <div class="room-actions">
         <button onclick="endGame('${room.roomCode}')">End Game</button>
@@ -370,7 +386,7 @@ function renderRoomsList(rooms) {
   `).join('');
 }
 
-function endGame(roomCode) {
+function endGame(roomCode: string): void {
   if (confirm(`End game in room ${roomCode}?`)) {
     ws.send(JSON.stringify({ action: "adminEndGame", roomCode }));
   }
@@ -422,16 +438,16 @@ function endGame(roomCode) {
 
 **Implementation:**
 
-```js
-// In game-logic.js
-function startTurn(room, playerId) {
+```ts
+// In game-logic.ts
+function startTurn(room: Room, playerId: string): void {
   room.turnStartTime = Date.now();
   room.turnDuration = 30000;  // 30 seconds
 
   // Check timer every second
-  const interval = setInterval(() => {
-    const elapsed = Date.now() - room.turnStartTime;
-    const remaining = room.turnDuration - elapsed;
+  const interval: NodeJS.Timeout = setInterval(() => {
+    const elapsed: number = Date.now() - room.turnStartTime;
+    const remaining: number = room.turnDuration - elapsed;
 
     if (remaining <= 0) {
       clearInterval(interval);
@@ -445,8 +461,21 @@ function startTurn(room, playerId) {
 
 **Record game events for replay:**
 
-```js
-const gameHistory = {
+```ts
+interface GameEvent {
+  type: "gameStarted" | "cardPlayed" | "cardDrawn";
+  timestamp: number;
+  playerId?: string;
+  card?: Card;
+}
+
+interface GameHistory {
+  roomCode: string;
+  players: PlayerInfo[];
+  events: GameEvent[];
+}
+
+const gameHistory: GameHistory = {
   roomCode: "ABXY",
   players: [...],
   events: [

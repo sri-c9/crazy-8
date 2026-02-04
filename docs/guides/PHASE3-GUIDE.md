@@ -5,7 +5,7 @@ Welcome to Phase 3! You've got a working card game. Now it's time to make it "In
 ## Before You Start
 
 **Prerequisites:**
-- Phase 2 complete (basic game working)
+- Phase 2 complete (basic game working with TypeScript)
 - Cards can be played and drawn
 - Turn order functioning
 
@@ -46,10 +46,10 @@ Currently you only generate number and wild cards. Add:
 <details>
 <summary>💡 Hint: Extended generateCard()</summary>
 
-```js
-const COLORS = ["red", "blue", "green", "yellow"];
+```ts
+const COLORS: CardColor[] = ["red", "blue", "green", "yellow"];
 
-export function generateCard() {
+export function generateCard(): Card {
   const random = Math.floor(Math.random() * 47);
 
   if (random < 32) {
@@ -62,32 +62,32 @@ export function generateCard() {
       type: "number",
       color: COLORS[colorIndex],
       value: NUMBER_VALUES[valueIndex]
-    };
+    } as NumberCard;
   } else if (random < 33) {
     // Wild
-    return { type: "wild", chosenColor: null };
+    return { type: "wild", chosenColor: null } as WildCard;
   } else if (random < 37) {
     // +2 (4 colors)
-    return { type: "plus2", color: COLORS[random - 33] };
+    return { type: "plus2", color: COLORS[random - 33] } as Plus2Card;
   } else if (random === 37) {
     // +4
-    return { type: "plus4" };
+    return { type: "plus4" } as Plus4Card;
   } else if (random === 38) {
     // +20
-    return { type: "plus20" };
+    return { type: "plus20" } as Plus20Card;
   } else if (random < 43) {
     // Skip (4 colors)
-    return { type: "skip", color: COLORS[random - 39] };
+    return { type: "skip", color: COLORS[random - 39] } as SkipCard;
   } else {
     // Reverse (4 colors)
-    return { type: "reverse", color: COLORS[random - 43] };
+    return { type: "reverse", color: COLORS[random - 43] } as ReverseCard;
   }
 }
 ```
 </details>
 
 **Test it:**
-```js
+```ts
 // Generate 20 cards, see variety
 for (let i = 0; i < 20; i++) {
   console.log(generateCard());
@@ -102,9 +102,21 @@ for (let i = 0; i < 20; i++) {
 
 ### 2.1: Add `pendingDraws` to Room State
 
-In `room-manager.js`, add to room object:
-```js
-pendingDraws: 0,        // Accumulated +card draws
+In `room-manager.ts`, add to room object:
+```ts
+// Update Room interface:
+interface Room {
+  // ... existing fields
+  pendingDraws: number;        // Accumulated +card draws
+  reverseStackCount: number;   // Add this now for Phase 3 Step 4
+}
+
+// In createRoom():
+const room: Room = {
+  // ... existing fields
+  pendingDraws: 0,
+  reverseStackCount: 0
+};
 ```
 
 ### 2.2: Update `canPlayCard` for Stacking
@@ -114,8 +126,12 @@ When `pendingDraws > 0`, only +cards can be played:
 <details>
 <summary>💡 Hint: Stacking validation</summary>
 
-```js
-export function canPlayCard(card, topCard, room) {
+```ts
+export function isPlusCard(card: Card): boolean {
+  return card.type === "plus2" || card.type === "plus4" || card.type === "plus20";
+}
+
+export function canPlayCard(card: Card, topCard: Card, room: Room): boolean {
   // If draws are pending, MUST play a +card (or draw them all)
   if (room.pendingDraws > 0) {
     return isPlusCard(card);
@@ -132,7 +148,7 @@ export function canPlayCard(card, topCard, room) {
   }
 
   // Get target color
-  const targetColor = topCard.type === "wild" ? room.lastPlayedColor : topCard.color;
+  const targetColor = topCard.type === "wild" ? room.lastPlayedColor : ("color" in topCard ? topCard.color : null);
 
   // Number cards: match color OR value
   if (card.type === "number" && topCard.type === "number") {
@@ -140,11 +156,7 @@ export function canPlayCard(card, topCard, room) {
   }
 
   // Match color for special cards
-  return card.color === targetColor;
-}
-
-function isPlusCard(card) {
-  return card.type === "plus2" || card.type === "plus4" || card.type === "plus20";
+  return "color" in card && card.color === targetColor;
 }
 ```
 </details>
@@ -158,7 +170,7 @@ When a +card is played:
 <details>
 <summary>💡 Hint: Plus-card logic in playCard</summary>
 
-```js
+```ts
 // After validating and removing card from hand...
 
 // Handle +cards
@@ -181,14 +193,18 @@ When player draws and `pendingDraws > 0`, draw all of them:
 <details>
 <summary>💡 Hint: Multi-draw logic</summary>
 
-```js
-export function drawCard(room, playerId) {
+```ts
+export function drawCard(room: Room, playerId: string): Card[] {
   if (getCurrentPlayer(room) !== playerId) {
     throw new Error("Not your turn");
   }
 
   const hand = room.playerHands.get(playerId);
-  let drawnCards = [];
+  if (!hand) {
+    throw new Error("Player has no hand");
+  }
+
+  let drawnCards: Card[] = [];
 
   if (room.pendingDraws > 0) {
     // Draw all pending cards
@@ -253,7 +269,7 @@ advanceTurn(room);
 <details>
 <summary>💡 Better Hint: Skip with custom advancement</summary>
 
-```js
+```ts
 // In playCard, BEFORE the final advanceTurn...
 
 let skipCount = 0;
@@ -283,9 +299,7 @@ for (let i = 0; i <= skipCount; i++) {
 
 ### 4.1: Add `reverseStackCount` to Room State
 
-```js
-reverseStackCount: 0,   // Consecutive reverses played
-```
+Already added in Step 2.1 above.
 
 ### 4.2: Update `canPlayCard` for Reverse Limit
 
@@ -294,7 +308,7 @@ If `reverseStackCount >= 4`, reverse cards can't be played:
 <details>
 <summary>💡 Hint: Reverse limit validation</summary>
 
-```js
+```ts
 // In canPlayCard, add check:
 if (card.type === "reverse" && room.reverseStackCount >= 4) {
   return false; // Max 4 reverses hit
@@ -315,11 +329,11 @@ When NON-reverse played:
 <details>
 <summary>💡 Hint: Reverse logic</summary>
 
-```js
+```ts
 // In playCard, after adding to discard pile...
 
 if (card.type === "reverse") {
-  room.direction *= -1; // Flip direction
+  room.direction *= -1 as 1 | -1; // Flip direction
   room.reverseStackCount++;
 } else {
   // Reset reverse counter when non-reverse played
@@ -352,7 +366,7 @@ In `broadcastGameState`, include:
 <details>
 <summary>💡 Hint: Enhanced state broadcast</summary>
 
-```js
+```ts
 const state = {
   type: "state",
   gameState: {
@@ -374,10 +388,16 @@ const state = {
 
 Since `drawCard` now returns an array:
 
-```js
-function handleDraw(ws, msg) {
+```ts
+function handleDraw(ws: ServerWebSocket<WebSocketData>, msg: IncomingMessage) {
   try {
+    if (!ws.data.roomCode || !ws.data.playerId) {
+      throw new Error("Not in a room");
+    }
+
     const room = getRoom(ws.data.roomCode);
+    if (!room) throw new Error("Room not found");
+
     const cards = drawCard(room, ws.data.playerId);
 
     ws.send(JSON.stringify({
@@ -388,14 +408,45 @@ function handleDraw(ws, msg) {
 
     broadcastGameState(ws.data.roomCode);
   } catch (error) {
-    ws.send(JSON.stringify({ type: "error", message: error.message }));
+    ws.send(JSON.stringify({ type: "error", message: (error as Error).message }));
   }
 }
 ```
 
 ---
 
-## Step 6: Update UI for Special Cards
+## Utility Functions (Shared Client/Server)
+
+You may want to export helper functions that can be used both server-side and client-side:
+
+```ts
+// In game-logic.ts
+
+export function cardToString(card: Card): string {
+  switch (card.type) {
+    case "number":
+      return `${card.color} ${card.value}`;
+    case "wild":
+      return card.chosenColor ? `Wild (${card.chosenColor})` : "Wild";
+    case "plus2":
+      return `${card.color} +2`;
+    case "plus4":
+      return "+4";
+    case "plus20":
+      return "+20";
+    case "skip":
+      return `${card.color} Skip`;
+    case "reverse":
+      return `${card.color} Reverse`;
+    default:
+      return "Unknown";
+  }
+}
+```
+
+---
+
+## Final Checkpoint: Test Special Cards
 
 **Goal:** Display pending draws and reverse info.
 
@@ -503,47 +554,47 @@ function cardToString(card) {
 
 ## Final Checkpoint: Test Special Cards
 
-### Test Scenarios:
+Test using browser DevTools or programmatic tests:
 
 **1. Plus-Stacking:**
-- Player A plays +2
-- Player B plays +4 → see "⚠️ +6 cards pending!"
-- Player C plays +20 → see "+26 cards pending!"
-- Player D has no +card, clicks Draw
-- Player D's hand grows by 26 cards
-- Alert disappears
+- Player A plays +2 (pendingDraws = 2)
+- Player B plays +4 (pendingDraws = 6)
+- Player C plays +20 (pendingDraws = 26)
+- Player D draws (receives 26 cards, pendingDraws resets to 0)
 
 **2. Skip:**
 - 4 players (A, B, C, D)
-- Player A plays skip
-- Turn goes to Player D (skipped B and C)
+- Player A (index 0) plays skip
+- Turn advances to Player D (index 3, skipped B and C)
 
 **3. Reverse:**
-- Player A plays reverse → direction arrow changes ⬅️
-- Player goes counter-clockwise
-- Stack 4 reverses → 5th reverse disabled
+- Player A plays reverse (direction = -1, reverseStackCount = 1)
+- Turn goes counter-clockwise
+- Stack 4 reverses total
+- 5th reverse card becomes unplayable
 
 **4. Reverse Limit Reset:**
 - After 4 reverses, play a number card
+- reverseStackCount resets to 0
 - Reverse cards become playable again
 
 **5. Cross-Color +Stacking:**
 - Red +2 on table
-- Play Blue +4 → should work (ignore color)
-- Play Green +2 → should work
+- Blue +4 is playable (ignore color for +card stacking)
+- Green +2 is playable
 
 ---
 
 ## What You Built
 
-- ✅ Plus-card stacking (any +card on any +card)
+- ✅ Plus-card stacking (any +card on any +card) with TypeScript types
 - ✅ Accumulated draw system (50+ cards possible)
 - ✅ Skip cards that skip 2 players
 - ✅ Reverse cards with direction flip
 - ✅ 4-reverse stack limit
-- ✅ UI alerts for pending draws
-- ✅ Direction indicator
-- ✅ Reverse counter display
+- ✅ Enhanced game state with pendingDraws and reverseStackCount
+- ✅ Type-safe card discrimination (discriminated unions)
+- ✅ Shared utility functions (cardToString, isPlusCard)
 
 ## Next Steps
 

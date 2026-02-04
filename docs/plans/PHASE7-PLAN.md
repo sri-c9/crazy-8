@@ -135,14 +135,14 @@ chmod +x start-server.sh
 
 **Bun Server Compression:**
 
-```js
-// In server.js
+```ts
+// In server.ts
 Bun.serve({
-  fetch(req, server) {
+  fetch(req: Request, server: Server): Response {
     // ... existing logic
 
     // Add compression headers
-    const headers = {
+    const headers: Record<string, string> = {
       "Content-Encoding": "gzip"  // Bun auto-compresses if client supports
     };
 
@@ -185,9 +185,9 @@ Bun.serve({
 
 Create test scripts for server logic:
 
-`test/room-manager.test.js`:
-```js
-import { createRoom, joinRoom, leaveRoom } from '../room-manager.js';
+`test/room-manager.test.ts`:
+```ts
+import { createRoom, joinRoom, leaveRoom } from '../room-manager.ts';
 
 // Test room creation
 const { roomCode, playerId } = createRoom("Alice", "😎");
@@ -212,7 +212,7 @@ console.log("All tests passed!");
 
 Run tests:
 ```bash
-bun test/room-manager.test.js
+bun test/room-manager.test.ts
 ```
 
 ### 5. Documentation
@@ -288,12 +288,18 @@ See `docs/PHASE*.md` for technical details
 
 **Add Server Logging:**
 
-```js
-// In server.js
-const log = {
-  info: (msg) => console.log(`[INFO] ${new Date().toISOString()} - ${msg}`),
-  error: (msg) => console.error(`[ERROR] ${new Date().toISOString()} - ${msg}`),
-  debug: (msg) => {
+```ts
+// In server.ts
+interface Logger {
+  info: (msg: string) => void;
+  error: (msg: string) => void;
+  debug: (msg: string) => void;
+}
+
+const log: Logger = {
+  info: (msg: string): void => console.log(`[INFO] ${new Date().toISOString()} - ${msg}`),
+  error: (msg: string): void => console.error(`[ERROR] ${new Date().toISOString()} - ${msg}`),
+  debug: (msg: string): void => {
     if (process.env.NODE_ENV === 'development') {
       console.log(`[DEBUG] ${msg}`);
     }
@@ -316,8 +322,15 @@ log.debug(`Current rooms: ${rooms.size}`);
 
 Store in memory for session (no database needed):
 
-```js
-const metrics = {
+```ts
+interface Metrics {
+  roomsCreated: number;
+  gamesPlayed: number;
+  totalPlayers: number;
+  errors: number;
+}
+
+const metrics: Metrics = {
   roomsCreated: 0,
   gamesPlayed: 0,
   totalPlayers: 0,

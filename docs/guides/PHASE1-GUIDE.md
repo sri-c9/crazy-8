@@ -7,7 +7,7 @@ Welcome! This guide will walk you through building the core server and room mana
 **Prerequisites:**
 - Bun installed (`bun --version` to check)
 - Code editor open in `/Users/sri/projects/web-apps/crazy-8`
-- Basic JavaScript knowledge (functions, objects, async/await)
+- Basic TypeScript knowledge (functions, objects, async/await, interfaces, type annotations)
 
 **Learning Approach:**
 - Read each step completely before coding
@@ -18,16 +18,17 @@ Welcome! This guide will walk you through building the core server and room mana
 
 ## Step 1: Build the Room Manager (No Server Yet)
 
-**Goal:** Create a pure JavaScript module that manages game rooms in memory.
+**Goal:** Create a pure TypeScript module that manages game rooms in memory.
 
 ### What You'll Learn
 - How to use `Map` for efficient key-value storage
 - Generating unique random codes
+- TypeScript interfaces and type annotations
 - Module exports in ES6
 
 ### Your Task
 
-Create `room-manager.js` in the project root. This file will export functions to create, join, and leave rooms.
+Create `room-manager.ts` in the project root. This file will export functions to create, join, and leave rooms.
 
 **Start with the data structure:**
 
@@ -39,18 +40,24 @@ Think about what you need to track:
 <details>
 <summary>💡 Hint: Room data structure</summary>
 
-```js
+```ts
 // At the top of the file
-const rooms = new Map();
+interface PlayerInfo {
+  id: string;
+  name: string;
+  avatar: string;
+  connected: boolean;
+}
 
-// Room structure (for reference, not code):
-// {
-//   roomCode: "ABXY",
-//   players: Map<playerId, { id, name, avatar, connected }>,
-//   hostId: "p_abc123",
-//   gameStatus: "waiting",
-//   createdAt: Date.now()
-// }
+interface Room {
+  roomCode: string;
+  players: Map<string, PlayerInfo>;
+  hostId: string;
+  gameStatus: "waiting" | "playing" | "finished";
+  createdAt: number;
+}
+
+const rooms = new Map<string, Room>();
 ```
 </details>
 
@@ -67,9 +74,9 @@ Write a function that:
 <details>
 <summary>💡 Hint: Random letter generation</summary>
 
-```js
+```ts
 // Get a random letter A-Z
-const randomLetter = () => {
+const randomLetter = (): string => {
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   return letters[Math.floor(Math.random() * letters.length)];
 };
@@ -79,9 +86,9 @@ const randomLetter = () => {
 <details>
 <summary>💡 Hint: Checking for collisions</summary>
 
-```js
-function generateRoomCode() {
-  let code;
+```ts
+function generateRoomCode(): string {
+  let code: string;
   do {
     code = /* generate 4 random letters */;
   } while (rooms.has(code)); // Keep trying if code exists
@@ -91,10 +98,10 @@ function generateRoomCode() {
 </details>
 
 **Test it:** Add a temporary console.log at the bottom of the file:
-```js
+```ts
 console.log(generateRoomCode()); // Should print something like "QWER"
 ```
-Run: `bun room-manager.js`
+Run: `bun room-manager.ts`
 
 ### 1.2: `createRoom(playerName, avatar)`
 
@@ -109,8 +116,8 @@ Write a function that:
 <details>
 <summary>💡 Hint: Generating player IDs</summary>
 
-```js
-const generatePlayerId = () => {
+```ts
+const generatePlayerId = (): string => {
   return "p_" + Math.random().toString(36).substring(2, 9);
 };
 ```
@@ -119,10 +126,10 @@ const generatePlayerId = () => {
 <details>
 <summary>💡 Hint: Room structure</summary>
 
-```js
-const room = {
+```ts
+const room: Room = {
   roomCode: code,
-  players: new Map(),
+  players: new Map<string, PlayerInfo>(),
   hostId: playerId,
   gameStatus: "waiting",
   createdAt: Date.now()
@@ -140,7 +147,7 @@ rooms.set(roomCode, room);
 </details>
 
 **Test it:**
-```js
+```ts
 const result = createRoom("Alice", "😎");
 console.log(result); // { roomCode: "ABXY", playerId: "p_abc123" }
 console.log(rooms.get(result.roomCode)); // Should show the room object with avatar
@@ -159,8 +166,8 @@ Write a function that:
 <details>
 <summary>💡 Hint: Validation pattern</summary>
 
-```js
-export function joinRoom(roomCode, playerName) {
+```ts
+export function joinRoom(roomCode: string, playerName: string, avatar: string): { playerId: string } {
   const room = rooms.get(roomCode);
 
   if (!room) {
@@ -182,7 +189,7 @@ export function joinRoom(roomCode, playerName) {
 </details>
 
 **Test it:**
-```js
+```ts
 const room1 = createRoom("Alice", "😎");
 const player2 = joinRoom(room1.roomCode, "Bob", "🔥");
 console.log(rooms.get(room1.roomCode).players.size); // Should be 2
@@ -199,7 +206,7 @@ Write a function that:
 <details>
 <summary>💡 Hint: Transferring host</summary>
 
-```js
+```ts
 if (playerId === room.hostId && room.players.size > 0) {
   // Get the first remaining player
   const newHostId = room.players.keys().next().value;
@@ -219,8 +226,12 @@ Write a function that:
 <details>
 <summary>💡 Hint: Map to array with transformation</summary>
 
-```js
-export function getRoomPlayerList(roomCode) {
+```ts
+interface PlayerListItem extends PlayerInfo {
+  isHost: boolean;
+}
+
+export function getRoomPlayerList(roomCode: string): PlayerListItem[] {
   const room = rooms.get(roomCode);
   if (!room) return [];
 
@@ -237,9 +248,9 @@ export function getRoomPlayerList(roomCode) {
 
 ### 1.6: Export all functions
 
-At the bottom of `room-manager.js`, export everything:
+At the bottom of `room-manager.ts`, export everything:
 
-```js
+```ts
 export {
   createRoom,
   joinRoom,
@@ -252,7 +263,7 @@ export {
 ```
 
 **Checkpoint 1:** Test your room manager thoroughly:
-```js
+```ts
 // At bottom of file (temporary):
 const r1 = createRoom("Alice", "😎");
 console.log("Created:", r1);
@@ -263,7 +274,7 @@ console.log("Joined:", p2);
 console.log("Players:", getRoomPlayerList(r1.roomCode));
 ```
 
-Run: `bun room-manager.js`
+Run: `bun room-manager.ts`
 
 Expected output: Room created, Bob joins, player list shows both.
 
@@ -281,17 +292,21 @@ Expected output: Room created, Bob joins, player list shows both.
 
 ### Your Task
 
-Create `server.js` in the project root.
+Create `server.ts` in the project root.
 
 ### 2.1: Basic HTTP Server (No WebSocket Yet)
 
 Start with just HTTP file serving:
 
-```js
+```ts
+interface ServerType {
+  port: number;
+}
+
 const server = Bun.serve({
   port: 3000,
 
-  async fetch(req) {
+  async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
 
     // TODO: Determine file path
@@ -313,7 +328,7 @@ console.log(`Server running on http://localhost:${server.port}`);
 <details>
 <summary>💡 Hint: File serving pattern</summary>
 
-```js
+```ts
 let filePath = "./public" + url.pathname;
 if (url.pathname === "/") {
   filePath = "./public/index.html";
@@ -337,7 +352,7 @@ return new Response("Not Found", { status: 404 });
 </html>
 ```
 
-Run `bun server.js` and visit `http://localhost:3000`
+Run `bun server.ts` and visit `http://localhost:3000`
 
 ### 2.2: Add WebSocket Upgrade
 
@@ -349,8 +364,15 @@ Now add WebSocket support. The pattern is:
 
 Update your `fetch` handler:
 
-```js
-async fetch(req, server) {
+```ts
+interface WebSocketData {
+  playerId: string | null;
+  playerName: string | null;
+  avatar: string | null;
+  roomCode: string | null;
+}
+
+async fetch(req: Request, server: ServerType): Promise<Response | undefined> {
   const url = new URL(req.url);
 
   // WebSocket upgrade
@@ -361,7 +383,7 @@ async fetch(req, server) {
         playerName: null,
         avatar: null,
         roomCode: null
-      }
+      } as WebSocketData
     });
 
     if (success) return undefined;
@@ -376,23 +398,25 @@ async fetch(req, server) {
 
 Add a `websocket` object to the `Bun.serve()` config:
 
-```js
+```ts
+import type { ServerWebSocket } from "bun";
+
 const server = Bun.serve({
   port: 3000,
 
-  fetch(req, server) { /* ... */ },
+  fetch(req: Request, server: ServerType): Promise<Response | undefined> { /* ... */ },
 
   websocket: {
-    open(ws) {
+    open(ws: ServerWebSocket<WebSocketData>) {
       console.log("WebSocket connected");
     },
 
-    message(ws, message) {
+    message(ws: ServerWebSocket<WebSocketData>, message: string) {
       console.log("Received:", message);
       // TODO: Parse JSON and route to handlers
     },
 
-    close(ws) {
+    close(ws: ServerWebSocket<WebSocketData>) {
       console.log("WebSocket closed");
       // TODO: Handle disconnect
     }
@@ -409,10 +433,17 @@ const server = Bun.serve({
 <details>
 <summary>💡 Hint: Message routing structure</summary>
 
-```js
-message(ws, message) {
+```ts
+interface IncomingMessage {
+  action: string;
+  playerName?: string;
+  avatar?: string;
+  roomCode?: string;
+}
+
+message(ws: ServerWebSocket<WebSocketData>, message: string) {
   try {
-    const msg = JSON.parse(message);
+    const msg = JSON.parse(message) as IncomingMessage;
 
     switch (msg.action) {
       case "create":
@@ -425,7 +456,7 @@ message(ws, message) {
         ws.send(JSON.stringify({ type: "error", message: "Unknown action" }));
     }
   } catch (error) {
-    ws.send(JSON.stringify({ type: "error", message: error.message }));
+    ws.send(JSON.stringify({ type: "error", message: (error as Error).message }));
   }
 }
 ```
@@ -443,16 +474,16 @@ Write a function that:
 <details>
 <summary>💡 Hint: handleCreate implementation</summary>
 
-```js
-import { createRoom, getRoomPlayerList } from "./room-manager.js";
+```ts
+import { createRoom, getRoomPlayerList } from "./room-manager.ts";
 
-function handleCreate(ws, msg) {
-  const { roomCode, playerId } = createRoom(msg.playerName, msg.avatar);
+function handleCreate(ws: ServerWebSocket<WebSocketData>, msg: IncomingMessage) {
+  const { roomCode, playerId } = createRoom(msg.playerName!, msg.avatar!);
 
   // Update WebSocket data
   ws.data.playerId = playerId;
-  ws.data.playerName = msg.playerName;
-  ws.data.avatar = msg.avatar;
+  ws.data.playerName = msg.playerName!;
+  ws.data.avatar = msg.avatar!;
   ws.data.roomCode = roomCode;
 
   // Subscribe to room topic
@@ -496,8 +527,8 @@ In the `close` handler:
 <details>
 <summary>💡 Hint: close handler</summary>
 
-```js
-close(ws) {
+```ts
+close(ws: ServerWebSocket<WebSocketData>) {
   if (ws.data.roomCode && ws.data.playerId) {
     leaveRoom(ws.data.roomCode, ws.data.playerId);
     ws.unsubscribe(ws.data.roomCode);
@@ -521,220 +552,9 @@ ws.send(JSON.stringify({ action: "create", playerName: "Alice", avatar: "😎" }
 
 ---
 
-## Step 3: Build the Test UI
+## Step 3: Test UI
 
-**Goal:** Create a simple HTML page to test the server without writing complex UI.
-
-### Your Task
-
-Create `public/index.html` with:
-- Input for player name
-- Emoji avatar picker (a row of emoji buttons to choose from)
-- "Create Room" button
-- Input for room code + "Join Room" button
-- Div to show status and player list (showing avatars next to names)
-
-<details>
-<summary>💡 Hint: HTML structure</summary>
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Crazy 8</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <h1>Insane Crazy 8</h1>
-
-  <input id="playerName" type="text" placeholder="Your name">
-
-  <div id="avatarPicker">
-    <p>Pick your avatar:</p>
-    <!-- Add a row of emoji buttons. Clicking one selects it. -->
-    <!-- Suggested emojis: 😎 🔥 👻 🎮 💀 🦊 🐸 🤖 👽 🎯 -->
-  </div>
-
-  <button id="createBtn">Create Room</button>
-
-  <hr>
-
-  <input id="roomCode" type="text" placeholder="Room code">
-  <button id="joinBtn">Join Room</button>
-
-  <div id="status"></div>
-
-  <script>
-    // TODO: WebSocket connection and handlers
-  </script>
-</body>
-</html>
-```
-</details>
-
-### 3.1: Emoji Avatar Picker
-
-Before wiring up WebSocket, build the avatar picker. The idea is simple: render a row of emoji buttons. When a player taps one, it becomes "selected" (highlighted). Store the selected emoji in a variable.
-
-**Your task:**
-- Create an array of emoji options (e.g., `["😎", "🔥", "👻", "🎮", "💀", "🦊", "🐸", "🤖", "👽", "🎯"]`)
-- Render them as clickable spans or buttons inside `#avatarPicker`
-- Track the selected emoji in a `let selectedAvatar` variable
-- Highlight the selected one with a CSS class (e.g., a border or background)
-- Default to the first emoji if none is picked
-
-<details>
-<summary>💡 Hint: Avatar picker logic</summary>
-
-```js
-const avatars = ["😎", "🔥", "👻", "🎮", "💀", "🦊", "🐸", "🤖", "👽", "🎯"];
-let selectedAvatar = avatars[0];
-
-const pickerDiv = document.getElementById("avatarPicker");
-avatars.forEach(emoji => {
-  const btn = document.createElement("span");
-  btn.textContent = emoji;
-  btn.className = "avatar-option" + (emoji === selectedAvatar ? " selected" : "");
-  btn.onclick = () => {
-    selectedAvatar = emoji;
-    // Remove 'selected' from all, add to this one
-    pickerDiv.querySelectorAll(".avatar-option").forEach(el => el.classList.remove("selected"));
-    btn.classList.add("selected");
-  };
-  pickerDiv.appendChild(btn);
-});
-```
-</details>
-
-<details>
-<summary>💡 Hint: Avatar picker CSS</summary>
-
-```css
-.avatar-option {
-  font-size: 28px;
-  cursor: pointer;
-  padding: 5px;
-  border-radius: 8px;
-  display: inline-block;
-}
-
-.avatar-option.selected {
-  background: #3498db33;
-  outline: 2px solid #3498db;
-}
-```
-</details>
-
-### 3.2: WebSocket Connection
-
-In the `<script>` tag, connect to the server:
-
-```js
-const ws = new WebSocket("ws://localhost:3000/ws");
-const status = document.getElementById("status");
-
-ws.onopen = () => {
-  status.textContent = "Connected";
-};
-
-ws.onmessage = (event) => {
-  const msg = JSON.parse(event.data);
-  handleMessage(msg);
-};
-
-ws.onerror = (error) => {
-  status.textContent = "Error: " + error;
-};
-```
-
-### 3.3: Button Handlers
-
-Wire up the buttons:
-
-```js
-document.getElementById("createBtn").onclick = () => {
-  const name = document.getElementById("playerName").value;
-  if (!name) {
-    alert("Enter your name");
-    return;
-  }
-  ws.send(JSON.stringify({ action: "create", playerName: name, avatar: selectedAvatar }));
-};
-
-document.getElementById("joinBtn").onclick = () => {
-  // TODO: Similar pattern for join, include avatar too
-};
-```
-
-### 3.4: Message Handler
-
-Handle incoming messages:
-
-```js
-function handleMessage(msg) {
-  switch (msg.type) {
-    case "roomCreated":
-      status.innerHTML = `<h2>Room: ${msg.roomCode}</h2>`;
-      break;
-    case "joined":
-      status.innerHTML = `<h2>Joined room: ${msg.roomCode}</h2>`;
-      break;
-    case "playerList":
-      displayPlayers(msg.players);
-      break;
-    case "error":
-      status.innerHTML = `<p style="color:red">${msg.message}</p>`;
-      break;
-  }
-}
-
-function displayPlayers(players) {
-  const list = players.map(p =>
-    `<li>${p.avatar} ${p.name} ${p.isHost ? "(Host)" : ""} ${p.connected ? "✓" : "✗"}</li>`
-  ).join("");
-  status.innerHTML += `<ul>${list}</ul>`;
-}
-```
-
-**Checkpoint 3:** Full end-to-end test:
-1. Run `bun dev`
-2. Open two browser tabs to `http://localhost:3000`
-3. Tab 1: Create room
-4. Tab 2: Join with the room code
-5. Both tabs should show updated player list
-
----
-
-## Step 4: Add Basic Styles
-
-Create `public/styles.css`:
-
-```css
-body {
-  font-family: system-ui, sans-serif;
-  max-width: 600px;
-  margin: 50px auto;
-  padding: 20px;
-}
-
-input, button {
-  font-size: 16px;
-  padding: 10px;
-  margin: 5px;
-}
-
-button {
-  background: #3498db;
-  color: white;
-  border: none;
-  cursor: pointer;
-}
-
-button:hover {
-  background: #2980b9;
-}
-```
+**Note:** Claude Code will build a test UI for you in `public/index.html` with avatar picker, room creation/joining, and player list display. You can test the WebSocket server functionality using browser DevTools as shown in Checkpoint 2 above.
 
 ---
 
@@ -753,12 +573,12 @@ Test all scenarios:
 ## What You Built
 
 Congratulations! You've built:
-- ✅ In-memory room management system
+- ✅ In-memory room management system with TypeScript interfaces
 - ✅ Bun HTTP server with static file serving
 - ✅ WebSocket server with pub/sub topics
 - ✅ Room creation and joining flow
 - ✅ Real-time player list updates
-- ✅ Basic test UI
+- ✅ Type-safe server handlers
 
 ## Next Steps
 

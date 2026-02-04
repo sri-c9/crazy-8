@@ -12,7 +12,7 @@ Implement core game logic including card generation, deck management, turn order
 
 ## Files to Create/Modify
 
-### 1. `game-logic.js` — Game Rules Engine (NEW)
+### 1. `game-logic.ts` — Game Rules Engine (NEW)
 
 **Responsibilities:**
 - Card generation and deck management
@@ -23,14 +23,50 @@ Implement core game logic including card generation, deck management, turn order
 - Draw card logic
 - Win condition detection (hand empty)
 
+**Type Definitions:**
+
+```ts
+type CardColor = "red" | "blue" | "green" | "yellow";
+type CardType = "number" | "wild" | "plus2" | "plus4" | "plus20" | "skip" | "reverse";
+
+interface Card {
+  type: CardType;
+  color?: CardColor;
+  value?: number;
+  chosenColor?: CardColor;  // For wild cards after played
+}
+
+interface PlayerInfo {
+  id: string;
+  name: string;
+  avatar: string;
+  connected: boolean;
+  hand: Card[];
+}
+
+interface Room {
+  roomCode: string;
+  players: Map<string, PlayerInfo>;
+  hostId: string;
+  gameStatus: "waiting" | "playing" | "finished";
+  createdAt: number;
+  currentPlayerIndex: number;
+  direction: 1 | -1;
+  discardPile: Card[];
+  pendingDraws: number;
+  reverseStackCount: number;
+  lastPlayedColor: string | null;
+}
+```
+
 **Exported Functions:**
 
-- `generateCard() → Card`
+- `generateCard(): Card`
   - Returns random card object: `{ type, color?, value? }`
   - Types: number (0-7, 9), wild (8), plus2, plus4, plus20, skip, reverse
   - Colors: red, blue, green, yellow (not applicable for wild/plus4/plus20)
 
-- `startGame(room: Room) → void`
+- `startGame(room: Room): void`
   - Validates minimum 3 players
   - Deals 7 cards to each player
   - Generates initial discard pile card
@@ -38,12 +74,12 @@ Implement core game logic including card generation, deck management, turn order
   - Sets `direction` to 1 (clockwise)
   - Sets `gameStatus` to "playing"
 
-- `canPlayCard(card: Card, topCard: Card, chosenColor?: string) → boolean`
+- `canPlayCard(card: Card, topCard: Card, chosenColor?: string): boolean`
   - Wild (8) cards: always playable
   - Regular cards: match color OR value with top of discard pile
   - Returns true/false
 
-- `playCard(room: Room, playerId: string, cardIndex: number, chosenColor?: string) → void`
+- `playCard(room: Room, playerId: string, cardIndex: number, chosenColor?: string): void`
   - Validates it's player's turn
   - Validates card can be played
   - Removes card from player's hand
@@ -53,26 +89,26 @@ Implement core game logic including card generation, deck management, turn order
   - Checks for win condition
   - Throws error if invalid
 
-- `drawCard(room: Room, playerId: string) → Card`
+- `drawCard(room: Room, playerId: string): Card`
   - Validates it's player's turn
   - Generates new random card
   - Adds to player's hand
   - Advances turn
   - Returns card for client display
 
-- `advanceTurn(room: Room) → void`
+- `advanceTurn(room: Room): void`
   - Increments/decrements `currentPlayerIndex` based on `direction`
   - Wraps around player count
 
-- `getCurrentPlayer(room: Room) → string`
+- `getCurrentPlayer(room: Room): string`
   - Returns playerId of current player
 
-- `checkWinCondition(room: Room) → string | null`
+- `checkWinCondition(room: Room): string | null`
   - Returns playerId of winner if any player has 0 cards
   - Returns null otherwise
 
-**Card Object Structure:**
-```js
+**Card Object Examples:**
+```ts
 // Number cards (0-7, 9)
 { type: "number", color: "red", value: 3 }
 
@@ -87,31 +123,30 @@ Implement core game logic including card generation, deck management, turn order
 { type: "reverse", color: "red" }
 ```
 
-### 2. `room-manager.js` — ADD Game State Fields (MODIFY)
+### 2. `room-manager.ts` — ADD Game State Fields (MODIFY)
 
 **New Fields in Room Object:**
-```js
-{
+```ts
+interface Room {
   // ... existing fields (roomCode, players, hostId, gameStatus, createdAt)
 
   // Game state fields (added in Phase 2)
-  currentPlayerIndex: number,        // Index in players Map iteration order
-  direction: 1 | -1,                 // 1 = clockwise, -1 = counter-clockwise
-  discardPile: Card[],               // Top card is last element
-  playerHands: Map<playerId, Card[]>, // Private hands
-  pendingDraws: 0,                   // For plus-stacking in Phase 3
-  reverseStackCount: 0,              // For reverse-limit in Phase 3
-  lastPlayedColor: string | null     // Current color (for wild cards)
+  currentPlayerIndex: number;        // Index in players Map iteration order
+  direction: 1 | -1;                 // 1 = clockwise, -1 = counter-clockwise
+  discardPile: Card[];               // Top card is last element
+  pendingDraws: number;              // For plus-stacking in Phase 3 (default: 0)
+  reverseStackCount: number;         // For reverse-limit in Phase 3 (default: 0)
+  lastPlayedColor: string | null;    // Current color (for wild cards)
 }
 ```
 
 **New Exported Function:**
-- `startGameInRoom(roomCode: string) → void`
+- `startGameInRoom(roomCode: string): void`
   - Delegates to `game-logic.startGame(room)`
   - Only host can start
   - Minimum 3 players required
 
-### 3. `server.js` — ADD Game Action Handlers (MODIFY)
+### 3. `server.ts` — ADD Game Action Handlers (MODIFY)
 
 **New WebSocket Message Handlers:**
 
@@ -141,6 +176,8 @@ Implement core game logic including card generation, deck management, turn order
   - Top discard card
   - Your hand (list of cards)
   - "Play Card" / "Draw Card" buttons (ugly but functional)
+
+**Note:** Frontend UI implementation will be handled by Claude Code.
 
 **JavaScript Updates:**
 - Handle `startGame` action
@@ -228,7 +265,7 @@ Simple uniform random works fine for casual gameplay.
 
 Use `currentPlayerIndex` (0-based) and `direction` (1 or -1). Wrap around player count.
 
-```js
+```ts
 // Clockwise
 currentPlayerIndex = (currentPlayerIndex + 1) % playerCount;
 
@@ -239,35 +276,36 @@ currentPlayerIndex = (currentPlayerIndex - 1 + playerCount) % playerCount;
 ### Player Iteration Order
 
 `Map<playerId, PlayerInfo>` maintains insertion order in JavaScript. Convert to array for indexing:
-```js
+```ts
 const playerArray = Array.from(room.players.keys());
-const currentPlayerId = playerArray[room.currentPlayerIndex];
+const currentPlayerId: string = playerArray[room.currentPlayerIndex];
 ```
 
 ## Implementation Order
 
-1. **`game-logic.js` — Card generation and validation**
+1. **`game-logic.ts` — Card generation and validation**
    - Write `generateCard()` first (testable in isolation)
    - Write `canPlayCard()` (unit-testable with sample cards)
 
-2. **`game-logic.js` — Game initialization**
+2. **`game-logic.ts` — Game initialization**
    - Implement `startGame()` to deal cards and set initial state
 
-3. **`game-logic.js` — Turn management**
+3. **`game-logic.ts` — Turn management**
    - Implement `playCard()`, `drawCard()`, `advanceTurn()`
    - Add win condition checking
 
-4. **`room-manager.js` — Extend room state**
+4. **`room-manager.ts` — Extend room state**
    - Add new fields to room object
    - Implement `startGameInRoom()`
 
-5. **`server.js` — Wire up game actions**
+5. **`server.ts` — Wire up game actions**
    - Add message handlers for `startGame`, `play`, `draw`
    - Implement game state broadcasting logic
 
 6. **`public/index.html` — Minimal game UI**
    - Add start button and game state display
    - Handle play/draw interactions
+   - Note: Frontend UI implementation will be handled by Claude Code.
 
 ## Testing & Verification
 
