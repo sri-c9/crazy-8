@@ -34,7 +34,7 @@ Create `room-manager.js` in the project root. This file will export functions to
 Think about what you need to track:
 - A collection of rooms (use `Map<roomCode, Room>`)
 - Each room has: code, players, host, status
-- Each player has: id, name, connection status
+- Each player has: id, name, emoji avatar, connection status
 
 <details>
 <summary>💡 Hint: Room data structure</summary>
@@ -46,7 +46,7 @@ const rooms = new Map();
 // Room structure (for reference, not code):
 // {
 //   roomCode: "ABXY",
-//   players: Map<playerId, { id, name, connected }>,
+//   players: Map<playerId, { id, name, avatar, connected }>,
 //   hostId: "p_abc123",
 //   gameStatus: "waiting",
 //   createdAt: Date.now()
@@ -96,13 +96,13 @@ console.log(generateRoomCode()); // Should print something like "QWER"
 ```
 Run: `bun room-manager.js`
 
-### 1.2: `createRoom(playerName)`
+### 1.2: `createRoom(playerName, avatar)`
 
 Write a function that:
 - Generates a room code
 - Creates a player ID (e.g., `"p_" + random string`)
 - Creates a new room object
-- Adds the host player to the room
+- Adds the host player to the room (with name and emoji avatar)
 - Stores the room in the `rooms` Map
 - Returns `{ roomCode, playerId }`
 
@@ -131,6 +131,7 @@ const room = {
 room.players.set(playerId, {
   id: playerId,
   name: playerName,
+  avatar: avatar,
   connected: true
 });
 
@@ -140,19 +141,19 @@ rooms.set(roomCode, room);
 
 **Test it:**
 ```js
-const result = createRoom("Alice");
+const result = createRoom("Alice", "😎");
 console.log(result); // { roomCode: "ABXY", playerId: "p_abc123" }
-console.log(rooms.get(result.roomCode)); // Should show the room object
+console.log(rooms.get(result.roomCode)); // Should show the room object with avatar
 ```
 
-### 1.3: `joinRoom(roomCode, playerName)`
+### 1.3: `joinRoom(roomCode, playerName, avatar)`
 
 Write a function that:
 - Checks if the room exists (throw error if not)
 - Checks if the room is full (max 6 players, throw error if full)
 - Checks if game has started (throw error if `gameStatus !== "waiting"`)
 - Generates a player ID
-- Adds the player to the room's players Map
+- Adds the player to the room's players Map (with name and emoji avatar)
 - Returns `{ playerId }`
 
 <details>
@@ -182,8 +183,8 @@ export function joinRoom(roomCode, playerName) {
 
 **Test it:**
 ```js
-const room1 = createRoom("Alice");
-const player2 = joinRoom(room1.roomCode, "Bob");
+const room1 = createRoom("Alice", "😎");
+const player2 = joinRoom(room1.roomCode, "Bob", "🔥");
 console.log(rooms.get(room1.roomCode).players.size); // Should be 2
 ```
 
@@ -226,6 +227,7 @@ export function getRoomPlayerList(roomCode) {
   return Array.from(room.players.values()).map(player => ({
     id: player.id,
     name: player.name,
+    avatar: player.avatar,
     connected: player.connected,
     isHost: player.id === room.hostId
   }));
@@ -252,10 +254,10 @@ export {
 **Checkpoint 1:** Test your room manager thoroughly:
 ```js
 // At bottom of file (temporary):
-const r1 = createRoom("Alice");
+const r1 = createRoom("Alice", "😎");
 console.log("Created:", r1);
 
-const p2 = joinRoom(r1.roomCode, "Bob");
+const p2 = joinRoom(r1.roomCode, "Bob", "🔥");
 console.log("Joined:", p2);
 
 console.log("Players:", getRoomPlayerList(r1.roomCode));
@@ -357,6 +359,7 @@ async fetch(req, server) {
       data: {
         playerId: null,
         playerName: null,
+        avatar: null,
         roomCode: null
       }
     });
@@ -444,11 +447,12 @@ Write a function that:
 import { createRoom, getRoomPlayerList } from "./room-manager.js";
 
 function handleCreate(ws, msg) {
-  const { roomCode, playerId } = createRoom(msg.playerName);
+  const { roomCode, playerId } = createRoom(msg.playerName, msg.avatar);
 
   // Update WebSocket data
   ws.data.playerId = playerId;
   ws.data.playerName = msg.playerName;
+  ws.data.avatar = msg.avatar;
   ws.data.roomCode = roomCode;
 
   // Subscribe to room topic
@@ -512,7 +516,7 @@ close(ws) {
 // In browser console:
 const ws = new WebSocket("ws://localhost:3000/ws");
 ws.onmessage = (e) => console.log(JSON.parse(e.data));
-ws.send(JSON.stringify({ action: "create", playerName: "Alice" }));
+ws.send(JSON.stringify({ action: "create", playerName: "Alice", avatar: "😎" }));
 ```
 
 ---
@@ -525,9 +529,10 @@ ws.send(JSON.stringify({ action: "create", playerName: "Alice" }));
 
 Create `public/index.html` with:
 - Input for player name
+- Emoji avatar picker (a row of emoji buttons to choose from)
 - "Create Room" button
 - Input for room code + "Join Room" button
-- Div to show status and player list
+- Div to show status and player list (showing avatars next to names)
 
 <details>
 <summary>💡 Hint: HTML structure</summary>
@@ -544,6 +549,13 @@ Create `public/index.html` with:
   <h1>Insane Crazy 8</h1>
 
   <input id="playerName" type="text" placeholder="Your name">
+
+  <div id="avatarPicker">
+    <p>Pick your avatar:</p>
+    <!-- Add a row of emoji buttons. Clicking one selects it. -->
+    <!-- Suggested emojis: 😎 🔥 👻 🎮 💀 🦊 🐸 🤖 👽 🎯 -->
+  </div>
+
   <button id="createBtn">Create Room</button>
 
   <hr>
@@ -561,7 +573,60 @@ Create `public/index.html` with:
 ```
 </details>
 
-### 3.1: WebSocket Connection
+### 3.1: Emoji Avatar Picker
+
+Before wiring up WebSocket, build the avatar picker. The idea is simple: render a row of emoji buttons. When a player taps one, it becomes "selected" (highlighted). Store the selected emoji in a variable.
+
+**Your task:**
+- Create an array of emoji options (e.g., `["😎", "🔥", "👻", "🎮", "💀", "🦊", "🐸", "🤖", "👽", "🎯"]`)
+- Render them as clickable spans or buttons inside `#avatarPicker`
+- Track the selected emoji in a `let selectedAvatar` variable
+- Highlight the selected one with a CSS class (e.g., a border or background)
+- Default to the first emoji if none is picked
+
+<details>
+<summary>💡 Hint: Avatar picker logic</summary>
+
+```js
+const avatars = ["😎", "🔥", "👻", "🎮", "💀", "🦊", "🐸", "🤖", "👽", "🎯"];
+let selectedAvatar = avatars[0];
+
+const pickerDiv = document.getElementById("avatarPicker");
+avatars.forEach(emoji => {
+  const btn = document.createElement("span");
+  btn.textContent = emoji;
+  btn.className = "avatar-option" + (emoji === selectedAvatar ? " selected" : "");
+  btn.onclick = () => {
+    selectedAvatar = emoji;
+    // Remove 'selected' from all, add to this one
+    pickerDiv.querySelectorAll(".avatar-option").forEach(el => el.classList.remove("selected"));
+    btn.classList.add("selected");
+  };
+  pickerDiv.appendChild(btn);
+});
+```
+</details>
+
+<details>
+<summary>💡 Hint: Avatar picker CSS</summary>
+
+```css
+.avatar-option {
+  font-size: 28px;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 8px;
+  display: inline-block;
+}
+
+.avatar-option.selected {
+  background: #3498db33;
+  outline: 2px solid #3498db;
+}
+```
+</details>
+
+### 3.2: WebSocket Connection
 
 In the `<script>` tag, connect to the server:
 
@@ -583,7 +648,7 @@ ws.onerror = (error) => {
 };
 ```
 
-### 3.2: Button Handlers
+### 3.3: Button Handlers
 
 Wire up the buttons:
 
@@ -594,15 +659,15 @@ document.getElementById("createBtn").onclick = () => {
     alert("Enter your name");
     return;
   }
-  ws.send(JSON.stringify({ action: "create", playerName: name }));
+  ws.send(JSON.stringify({ action: "create", playerName: name, avatar: selectedAvatar }));
 };
 
 document.getElementById("joinBtn").onclick = () => {
-  // TODO: Similar pattern for join
+  // TODO: Similar pattern for join, include avatar too
 };
 ```
 
-### 3.3: Message Handler
+### 3.4: Message Handler
 
 Handle incoming messages:
 
@@ -626,7 +691,7 @@ function handleMessage(msg) {
 
 function displayPlayers(players) {
   const list = players.map(p =>
-    `<li>${p.name} ${p.isHost ? "(Host)" : ""} ${p.connected ? "✓" : "✗"}</li>`
+    `<li>${p.avatar} ${p.name} ${p.isHost ? "(Host)" : ""} ${p.connected ? "✓" : "✗"}</li>`
   ).join("");
   status.innerHTML += `<ul>${list}</ul>`;
 }

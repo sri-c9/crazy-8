@@ -54,6 +54,7 @@ const rooms = new Map(); // Map<roomCode, Room>
   players: Map<string, {    // Map<playerId, PlayerInfo>
     id: string,             // Unique player ID
     name: string,           // Display name
+    avatar: string,         // Emoji avatar (e.g., "😎", "🔥", "👻")
     connected: boolean      // Connection status
   }>,
   hostId: string,           // Player who created the room
@@ -64,14 +65,14 @@ const rooms = new Map(); // Map<roomCode, Room>
 
 **Exported Functions:**
 
-- `createRoom(playerName: string) → { roomCode: string, playerId: string }`
+- `createRoom(playerName: string, avatar: string) → { roomCode: string, playerId: string }`
   - Generates unique room code
-  - Creates room with host player
+  - Creates room with host player (name + emoji avatar)
   - Returns room code and player ID
 
-- `joinRoom(roomCode: string, playerName: string) → { playerId: string }`
+- `joinRoom(roomCode: string, playerName: string, avatar: string) → { playerId: string }`
   - Validates: room exists, not full (max 6 players), game not started
-  - Adds player to room
+  - Adds player to room (name + emoji avatar)
   - Returns player ID
   - Throws error if validation fails
 
@@ -90,7 +91,7 @@ const rooms = new Map(); // Map<roomCode, Room>
 - `getRoom(roomCode: string) → Room | undefined`
   - Returns room object or undefined
 
-- `getRoomPlayerList(roomCode: string) → Array<{ id, name, connected, isHost }>`
+- `getRoomPlayerList(roomCode: string) → Array<{ id, name, avatar, connected, isHost }>`
   - Returns sanitized player list for broadcasting
   - Includes `isHost` flag for UI highlighting
 
@@ -110,10 +111,11 @@ A functional placeholder for testing. Will be replaced with proper UI in Phase 4
 
 **UI Elements:**
 - Text input: Player name
+- Emoji avatar picker: Grid of emoji options to choose from
 - Button: "Create Room"
 - Text input: Room code
 - Button: "Join Room"
-- Status div: Shows connection state, room info, player list
+- Status div: Shows connection state, room info, player list with avatars
 
 **JavaScript (inline):**
 - Connect to WebSocket on page load
@@ -141,7 +143,8 @@ Will be replaced in Phase 4 with proper mobile-optimized design.
 ```json
 {
   "action": "create",
-  "playerName": "Alice"
+  "playerName": "Alice",
+  "avatar": "😎"
 }
 ```
 
@@ -150,7 +153,8 @@ Will be replaced in Phase 4 with proper mobile-optimized design.
 {
   "action": "join",
   "roomCode": "ABXY",
-  "playerName": "Bob"
+  "playerName": "Bob",
+  "avatar": "🔥"
 }
 ```
 
@@ -189,8 +193,8 @@ Will be replaced in Phase 4 with proper mobile-optimized design.
 {
   "type": "playerList",
   "players": [
-    { "id": "p_abc123", "name": "Alice", "connected": true, "isHost": true },
-    { "id": "p_def456", "name": "Bob", "connected": true, "isHost": false }
+    { "id": "p_abc123", "name": "Alice", "avatar": "😎", "connected": true, "isHost": true },
+    { "id": "p_def456", "name": "Bob", "avatar": "🔥", "connected": true, "isHost": false }
   ]
 }
 ```
@@ -204,6 +208,7 @@ server.upgrade(req, {
   data: {
     playerId: null,    // Set after create/join succeeds
     playerName: null,  // Set after create/join succeeds
+    avatar: null,      // Set after create/join succeeds
     roomCode: null     // Set after create/join succeeds
   }
 });

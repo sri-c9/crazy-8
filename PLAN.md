@@ -127,6 +127,7 @@ A multiplayer web-based Crazy 8 card game with insane rules, designed for 3-6 pl
     {
       id: string,             // Unique player ID
       name: string,           // Display name
+      avatar: string,         // Emoji avatar (e.g., "😎")
       hand: Card[],           // Cards in hand
       connected: boolean      // Connection status
     }
@@ -155,7 +156,7 @@ A multiplayer web-based Crazy 8 card game with insane rules, designed for 3-6 pl
 **Client → Server**
 ```javascript
 // Join room
-{ action: 'join', roomCode: string, playerName: string }
+{ action: 'join', roomCode: string, playerName: string, avatar: string }
 
 // Play card
 { action: 'play', cardIndex: number, chosenColor?: string }
@@ -164,7 +165,7 @@ A multiplayer web-based Crazy 8 card game with insane rules, designed for 3-6 pl
 { action: 'draw' }
 
 // Create room
-{ action: 'create', playerName: string }
+{ action: 'create', playerName: string, avatar: string }
 ```
 
 **Server → Client**
