@@ -1,0 +1,83 @@
+# Insane Crazy 8
+
+A multiplayer web-based Crazy 8 card game with insane rules. Play with 3-6 friends on your phones!
+
+## Features
+
+- **Insane Rules**: +20 cards, plus-stacking, skip 2 players, reverse chains
+- **Real-time Multiplayer**: WebSocket-based instant updates
+- **Mobile-Friendly**: Play on any phone browser, no app needed
+- **No Setup**: Just share a room code and play
+
+## Quick Start
+
+### Prerequisites
+
+- [Bun](https://bun.sh) installed (`curl -fsSL https://bun.sh/install | bash`)
+- [ngrok](https://ngrok.com) for public URL (optional but recommended)
+
+### Running Locally
+
+1. Start the game server:
+```bash
+bun server.js
+```
+
+2. In a separate terminal, expose it publicly:
+```bash
+ngrok http 3000
+```
+
+3. Share the ngrok URL with your friends
+
+4. Open the URL on your phones and play!
+
+## Game Rules
+
+### Card Types
+
+- **Number cards (0-7, 9)**: Match by color or number
+- **8 (Wild)**: Play anytime, choose new color
+- **+2**: Draw 2 cards (stackable)
+- **+4**: Draw 4 cards, choose color (stackable)
+- **+20**: Draw 20 cards (stackable)
+- **Skip**: Skip next 2 players
+- **Reverse**: Reverse turn order (max 4 stack)
+
+### Special Rules
+
+- **Plus Stacking**: Any +card can stack on any other +card
+- **Reverse Limit**: Only 4 reverses can stack in a row
+- **Infinite Deck**: Never run out of cards
+- **3-6 Players**: Supports 3 to 6 players per game
+
+## Project Structure
+
+```
+crazy-8/
+├── server.js              # Main Bun server
+├── game-logic.js          # Game rules engine
+├── room-manager.js        # Room management
+├── public/
+│   ├── index.html         # Landing page
+│   ├── game.html          # Game UI
+│   ├── styles.css         # Styles
+│   └── game-client.js     # Client logic
+├── PLAN.md                # Implementation plan
+└── README.md              # This file
+```
+
+## Development
+
+See [PLAN.md](./PLAN.md) for the full implementation and design plan.
+
+## Tech Stack
+
+- **Runtime**: Bun.js
+- **Frontend**: Vanilla HTML/CSS/JS
+- **Real-time**: Native WebSocket
+- **Deployment**: Local + ngrok tunnel
+
+## License
+
+MIT
