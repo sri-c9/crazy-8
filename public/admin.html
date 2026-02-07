@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel — Insane Crazy 8</title>
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <div id="admin-app">
+
+    <!-- Header -->
+    <header id="admin-header">
+      <h1>Insane Crazy 8 <span class="badge">ADMIN</span></h1>
+      <div id="connection-status">
+        <span class="status-dot disconnected" id="admin-status-dot"></span>
+        <span id="admin-status-text">Disconnected</span>
+      </div>
+    </header>
+
+    <!-- Room Selector -->
+    <section id="room-selector">
+      <div class="section-header">
+        <h2>Active Rooms</h2>
+        <button id="refresh-rooms-btn" class="btn btn-small">Refresh</button>
+      </div>
+      <div id="rooms-list">
+        <p class="empty-state">No active rooms</p>
+      </div>
+    </section>
+
+    <!-- Watched Room Panel (hidden until a room is selected) -->
+    <section id="watched-room-panel" style="display: none;">
+
+      <!-- Room Info Bar -->
+      <div id="room-info-bar">
+        <div class="room-info-left">
+          <span class="room-code-display" id="watched-room-code">----</span>
+          <span class="room-status-badge" id="watched-room-status">waiting</span>
+        </div>
+        <div class="room-info-right">
+          <span id="watched-direction" class="direction-indicator" title="Turn direction"></span>
+          <span id="watched-pending" class="pending-badge" style="display: none;"></span>
+          <button id="unwatch-btn" class="btn btn-small btn-secondary">Unwatch</button>
+        </div>
+      </div>
+
+      <!-- Players Overview -->
+      <div id="players-overview">
+        <h3>Players</h3>
+        <div id="players-grid"></div>
+      </div>
+
+      <!-- Current Turn Info -->
+      <div id="turn-info" style="display: none;">
+        <span id="current-turn-text"></span>
+      </div>
+
+      <!-- God Mode Controls -->
+      <div id="god-mode-section">
+        <h3>God Mode Powers</h3>
+        <div id="power-toggles">
+          <label class="power-toggle">
+            <input type="checkbox" id="toggle-seeAllHands" data-power="seeAllHands">
+            <span class="toggle-slider"></span>
+            <span class="toggle-label">See All Hands</span>
+          </label>
+          <label class="power-toggle">
+            <input type="checkbox" id="toggle-manipulateCards" data-power="manipulateCards">
+            <span class="toggle-slider"></span>
+            <span class="toggle-label">Manipulate Cards</span>
+          </label>
+          <label class="power-toggle">
+            <input type="checkbox" id="toggle-controlTurns" data-power="controlTurns">
+            <span class="toggle-slider"></span>
+            <span class="toggle-label">Control Turns</span>
+          </label>
+          <label class="power-toggle">
+            <input type="checkbox" id="toggle-roomControl" data-power="roomControl">
+            <span class="toggle-slider"></span>
+            <span class="toggle-label">Room Control</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- See All Hands Panel -->
+      <div id="hands-panel" class="power-panel" style="display: none;">
+        <h3>All Hands</h3>
+        <div id="all-hands-container"></div>
+      </div>
+
+      <!-- Manipulate Cards Panel -->
+      <div id="manipulate-panel" class="power-panel" style="display: none;">
+        <h3>Manipulate Cards</h3>
+
+        <div class="action-group">
+          <h4>Give Card</h4>
+          <div class="action-row">
+            <select id="give-card-player" class="input-select">
+              <option value="">Select player...</option>
+            </select>
+            <select id="give-card-type" class="input-select">
+              <option value="random">Random</option>
+              <option value="number">Number Card</option>
+              <option value="wild">Wild (8)</option>
+              <option value="plus2">+2</option>
+              <option value="plus4">+4</option>
+              <option value="plus20">+20</option>
+              <option value="skip">Skip</option>
+              <option value="reverse">Reverse</option>
+            </select>
+            <select id="give-card-color" class="input-select" style="display: none;">
+              <option value="red">Red</option>
+              <option value="blue">Blue</option>
+              <option value="green">Green</option>
+              <option value="yellow">Yellow</option>
+            </select>
+            <input type="number" id="give-card-value" class="input-number" placeholder="0-9" min="0" max="9" style="display: none;">
+            <button id="give-card-btn" class="btn btn-action">Give</button>
+          </div>
+        </div>
+
+        <div class="action-group">
+          <h4>Change Top Card</h4>
+          <div class="action-row">
+            <select id="top-card-type" class="input-select">
+              <option value="number">Number Card</option>
+              <option value="wild">Wild (8)</option>
+              <option value="plus2">+2</option>
+              <option value="plus4">+4</option>
+              <option value="plus20">+20</option>
+              <option value="skip">Skip</option>
+              <option value="reverse">Reverse</option>
+            </select>
+            <select id="top-card-color" class="input-select">
+              <option value="red">Red</option>
+              <option value="blue">Blue</option>
+              <option value="green">Green</option>
+              <option value="yellow">Yellow</option>
+            </select>
+            <input type="number" id="top-card-value" class="input-number" placeholder="0-9" min="0" max="9" style="display: none;">
+            <button id="set-top-card-btn" class="btn btn-action">Set</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Control Turns Panel -->
+      <div id="turns-panel" class="power-panel" style="display: none;">
+        <h3>Control Turns</h3>
+
+        <div class="action-row">
+          <button id="skip-turn-btn" class="btn btn-action">Skip Turn</button>
+          <button id="reverse-dir-btn" class="btn btn-action">Reverse Direction</button>
+        </div>
+
+        <div class="action-group">
+          <h4>Force Draw</h4>
+          <div class="action-row">
+            <select id="force-draw-player" class="input-select">
+              <option value="">Select player...</option>
+            </select>
+            <input type="number" id="force-draw-count" class="input-number" placeholder="Count" min="1" max="50" value="5">
+            <button id="force-draw-btn" class="btn btn-action">Force Draw</button>
+          </div>
+        </div>
+
+        <div class="action-group">
+          <h4>Set Current Player</h4>
+          <div class="action-row">
+            <select id="set-player-select" class="input-select">
+              <option value="">Select player...</option>
+            </select>
+            <button id="set-player-btn" class="btn btn-action">Set Turn</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Room Control Panel -->
+      <div id="room-control-panel" class="power-panel" style="display: none;">
+        <h3>Room Control</h3>
+
+        <div class="action-group">
+          <h4>Kick Player</h4>
+          <div class="action-row">
+            <select id="kick-player-select" class="input-select">
+              <option value="">Select player...</option>
+            </select>
+            <button id="kick-player-btn" class="btn btn-danger">Kick</button>
+          </div>
+        </div>
+
+        <div class="action-row">
+          <button id="force-start-btn" class="btn btn-action">Force Start Game</button>
+          <button id="end-game-btn" class="btn btn-danger">End Game</button>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Action Log -->
+    <section id="action-log-section">
+      <h3>Action Log</h3>
+      <div id="action-log"></div>
+    </section>
+
+  </div>
+
+  <script src="dist/admin-client.js"></script>
+</body>
+</html>
