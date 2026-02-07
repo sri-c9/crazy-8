@@ -6,7 +6,7 @@
   "scripts": {
     "start": "bun server.ts",
     "dev": "bun --watch server.ts",
-    "build": "bun build public/game-client.ts --outdir public --target browser"
+    "build": "bun build public/lobby.ts public/game-client.ts public/admin-client.ts --outdir public/dist --target browser"
   },
   "keywords": [
     "card-game",
