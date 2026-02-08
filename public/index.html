@@ -61,6 +61,10 @@
 
       <h3>Players (<span id="playerCount">0</span>/6)</h3>
       <div class="player-list" id="playerList"></div>
+
+      <!-- Start Game Button (host only, min 3 players) -->
+      <button class="btn btn-primary hidden" id="startGameBtn">Start Game</button>
+      <p id="waitingMessage" class="hidden">Waiting for host to start...</p>
     </div>
 
     <!-- Error Display -->
@@ -71,6 +75,8 @@
     let ws = null;
     let selectedAvatar = "😎";
     let currentRoomCode = null;
+    let currentPlayerId = null;
+    let isHost = false;
 
     // DOM elements
     const statusEl = document.getElementById("connectionStatus");
@@ -122,16 +128,24 @@
       switch (data.type) {
         case "roomCreated":
           currentRoomCode = data.roomCode;
+          currentPlayerId = data.playerId;
+          isHost = true;  // Creator is always host
           showRoom(data.roomCode);
           break;
 
         case "joined":
           currentRoomCode = data.roomCode;
+          currentPlayerId = data.playerId;
           showRoom(data.roomCode);
           break;
 
         case "playerList":
           updatePlayerList(data.players);
+          break;
+
+        case "gameStarted":
+          // Redirect to game page
+          window.location.href = `/game.html?room=${currentRoomCode}&player=${currentPlayerId}`;
           break;
 
         case "error":
@@ -215,6 +229,23 @@
         `;
         playerListEl.appendChild(playerDiv);
       });
+
+      // Show/hide start game button
+      const startGameBtn = document.getElementById("startGameBtn");
+      const waitingMessage = document.getElementById("waitingMessage");
+
+      if (isHost && players.length >= 3) {
+        startGameBtn.classList.remove("hidden");
+        waitingMessage.classList.add("hidden");
+      } else if (isHost && players.length < 3) {
+        startGameBtn.classList.add("hidden");
+        waitingMessage.classList.remove("hidden");
+        waitingMessage.textContent = `Need ${3 - players.length} more player(s) to start`;
+      } else {
+        startGameBtn.classList.add("hidden");
+        waitingMessage.classList.remove("hidden");
+        waitingMessage.textContent = "Waiting for host to start...";
+      }
     }
 
     // Show error
@@ -225,6 +256,18 @@
         errorDisplayEl.classList.add("hidden");
       }, 3000);
     }
+
+    // Start game button
+    document.getElementById("startGameBtn").addEventListener("click", () => {
+      if (!ws || !currentRoomCode) {
+        showError("Not connected to a room");
+        return;
+      }
+
+      ws.send(JSON.stringify({
+        action: "startGame"
+      }));
+    });
 
     // Convert room code input to uppercase
     joinCodeInput.addEventListener("input", (e) => {

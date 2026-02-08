@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Insane Crazy 8 - Game</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="game-body">
+  <!-- Top Bar -->
+  <div class="top-bar">
+    <span class="room-badge" id="roomBadge">----</span>
+    <span class="turn-indicator" id="turnIndicator">Loading...</span>
+    <button class="menu-btn" id="menuBtn" title="Menu">⋮</button>
+  </div>
+
+  <!-- Opponents Area -->
+  <div class="opponents-container">
+    <div id="opponentsList" class="opponents-scroll">
+      <!-- Opponent cards rendered here -->
+    </div>
+  </div>
+
+  <!-- Center: Draw & Discard Piles -->
+  <div class="center-area">
+    <!-- Pending Draws Alert -->
+    <div id="pendingAlert" class="pending-alert hidden">
+      ⚠️ <span id="pendingCount">0</span> cards pending!
+    </div>
+
+    <div class="piles-container">
+      <!-- Draw Pile -->
+      <div class="pile draw-pile">
+        <div class="card-back">🎴</div>
+        <button id="drawBtn" class="pile-btn">Draw</button>
+      </div>
+
+      <!-- Discard Pile -->
+      <div class="pile discard-pile">
+        <div id="topCard" class="card">
+          <span class="card-value">?</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Direction Indicator -->
+    <div class="direction-indicator" id="directionIndicator">
+      <span id="directionArrow">→</span>
+      <span class="direction-label">Direction</span>
+    </div>
+  </div>
+
+  <!-- Your Hand -->
+  <div class="hand-area">
+    <div class="hand-header">
+      <span class="hand-label">Your cards:</span>
+      <span class="card-count-badge" id="cardCount">0</span>
+    </div>
+    <div id="handCards" class="hand-cards-scroll">
+      <!-- Cards rendered here -->
+    </div>
+  </div>
+
+  <!-- Color Picker Modal -->
+  <div id="colorPicker" class="modal hidden">
+    <div class="modal-overlay" id="colorPickerOverlay"></div>
+    <div class="modal-content">
+      <h3>Choose a color:</h3>
+      <div class="color-buttons">
+        <button class="color-btn red" data-color="red" title="Red"></button>
+        <button class="color-btn blue" data-color="blue" title="Blue"></button>
+        <button class="color-btn green" data-color="green" title="Green"></button>
+        <button class="color-btn yellow" data-color="yellow" title="Yellow"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Over Modal -->
+  <div id="gameOver" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <h2>🎉 Game Over!</h2>
+      <p class="winner-text"><span id="winnerName"></span> wins!</p>
+      <button id="backToLobbyBtn" class="btn-primary">Back to Lobby</button>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="loading-spinner"></div>
+    <p>Connecting...</p>
+  </div>
+
+  <script type="module" src="game-client.js"></script>
+</body>
+</html>
