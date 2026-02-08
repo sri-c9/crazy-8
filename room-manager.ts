@@ -1,8 +1,12 @@
+import type { Card } from "./game-logic";
+import { startGame } from "./game-logic";
+
 interface Player {
   id: string;
   name: string;
   avatar: string;
   connected: boolean;
+  hand: Card[];  // Player's cards
 }
 
 interface Room {
@@ -11,14 +15,21 @@ interface Room {
   hostId: string;
   status: GameStatus;
   createdAt: number;
+  // Game state fields
+  currentPlayerIndex: number;
+  direction: 1 | -1;
+  discardPile: Card[];
+  pendingDraws: number;
+  reverseStackCount: number;
+  lastPlayedColor: string | null;
 }
 
 const rooms = new Map<string, Room>();
 
-enum GameStatus {
-  waiting,
-  playing,
-  finished,
+export enum GameStatus {
+  waiting = "waiting",
+  playing = "playing",
+  finished = "finished",
 }
 
 // Get a random letter A-Z
@@ -54,6 +65,7 @@ function createRoom(
     name: playerName,
     avatar: avatar,
     connected: true,
+    hand: [],  // Initialize empty hand
   };
 
   const room: Room = {
@@ -62,6 +74,13 @@ function createRoom(
     hostId: hostId,
     status: GameStatus.waiting,
     createdAt: Date.now(),
+    // Initialize game state
+    currentPlayerIndex: 0,
+    direction: 1,
+    discardPile: [],
+    pendingDraws: 0,
+    reverseStackCount: 0,
+    lastPlayedColor: null,
   };
   room.players.set(hostId, hostPlayer);
   rooms.set(roomCode, room);
@@ -92,6 +111,7 @@ function joinRoom(
     name: playerName,
     avatar: avatar,
     connected: true,
+    hand: [],  // Initialize empty hand
   };
 
   room.players.set(playerId, player);
@@ -171,6 +191,30 @@ function getRoomPlayerList(roomCode: string): PlayerListItem[] {
   }));
 }
 
+// Start game in a room
+function startGameInRoom(roomCode: string, hostId: string): void {
+  const room = rooms.get(roomCode);
+
+  if (!room) {
+    throw new Error("Room not found");
+  }
+
+  if (room.hostId !== hostId) {
+    throw new Error("Only host can start game");
+  }
+
+  if (room.players.size < 3) {
+    throw new Error("Need at least 3 players to start");
+  }
+
+  if (room.status !== GameStatus.waiting) {
+    throw new Error("Game already started");
+  }
+
+  // Start the game
+  startGame(room);
+}
+
 export {
   createRoom,
   joinRoom,
@@ -179,8 +223,8 @@ export {
   reconnectPlayer,
   getRoom,
   getRoomPlayerList,
+  startGameInRoom,
   type Player,
   type Room,
   type PlayerListItem,
-  GameStatus,
 };
