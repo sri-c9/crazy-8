@@ -229,59 +229,34 @@ crazy-8/
 
 ## Implementation Phases
 
-### Phase 1: Core Server & Rooms
-- [ ] Set up Bun HTTP server
-- [ ] Implement WebSocket handler
-- [ ] Create room manager (create/join/leave)
-- [ ] Basic game state structure
-- [ ] Room code generation
+### Active Documentation
 
-### Phase 2: Game Logic
-- [ ] Card generation logic
-- [ ] Turn order management
-- [ ] Card play validation
-- [ ] Normal card rules (match color/number)
-- [ ] Wild card (8) logic
-- [ ] Draw card logic
+**Server Infrastructure:**
+- ✅ Bun HTTP server with static file serving
+- ✅ WebSocket handler with pub/sub topics
+- ✅ Room manager (create/join/leave/disconnect)
+- ✅ Room code generation (4-character codes)
+- ✅ Player list broadcasting
+- See: `docs/plans/SERVER-PLAN.md` and `docs/guides/SERVER-GUIDE.md`
 
-### Phase 3: Special Cards
-- [ ] Plus card stacking (+2, +4, +20)
-- [ ] Skip logic (skip 2 players)
-- [ ] Reverse logic with stack limit
-- [ ] Win condition detection
+**Deployment & Testing:**
+- ✅ Protocol-aware WebSocket URLs (ws:// vs wss://)
+- ✅ ngrok tunnel setup for public access
+- ✅ Startup scripts (Bun + ngrok)
+- ✅ Cross-device testing procedures
+- ✅ Logging and metrics (optional)
+- See: `docs/plans/DEPLOYMENT-PLAN.md` and `docs/guides/DEPLOYMENT-GUIDE.md`
 
-### Phase 4: Basic UI (Claude Code)
-- [ ] Landing page (create/join room)
-- [ ] Game board layout
-- [ ] Player hand display
-- [ ] Discard/draw pile UI
-- [ ] Turn indicator
-- [ ] Opponent card counts
+### Archived Documentation
 
-_Note: Frontend UI phases are implemented by Claude Code following established architectural patterns._
+The following plans and guides have been moved to `docs/random/` for future reference:
+- **Phases 2-3:** Game logic (cards, turns, special rules)
+- **Phases 4-6:** UI implementation, animations, mobile UX
+- **Phase 7 (old):** Game settings and variations
+- **Phase 8:** Admin panel
+- **iOS Haptics:** Mobile haptic feedback integration
 
-### Phase 5: Error Handling & Reconnection
-- [ ] Structured error responses
-- [ ] Server-side reconnection handler
-- [ ] Error toasts (Claude Code)
-- [ ] Loading states (Claude Code)
-- [ ] Connection indicator (Claude Code)
-
-### Phase 6: Animations & Mobile UX (Claude Code)
-- [ ] CSS animations (card plays)
-- [ ] Mobile-responsive layout
-- [ ] Touch-friendly card selection
-- [ ] Optimistic UI updates
-
-### Phase 7: Game Settings & Variations
-- [ ] Configurable game rules
-- [ ] Rule presets
-- [ ] Host settings UI (Claude Code)
-
-### Phase 8: Admin Panel
-- [ ] Password-protected admin route
-- [ ] Game monitoring dashboard (Claude Code)
-- [ ] Feature toggle endpoints
+These features may be implemented later, but the focus is currently on the infrastructure layer (server + deployment).
 
 ## UI Design Considerations
 
