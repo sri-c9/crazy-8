@@ -42,8 +42,6 @@ const generatePlayerId = (): string => {
   return "p_" + Math.random().toString(36).substring(2, 9);
 };
 
-console.log(generateRoomCode());
-
 function createRoom(
   playerName: string,
   avatar: string,
@@ -70,19 +68,12 @@ function createRoom(
   return { roomCode: roomCode, playerId: hostId };
 }
 
-const result: { roomCode: string; playerId: string } = createRoom(
-  "Alice",
-  "😎",
-);
-console.log(result); // { roomCode: "ABXY", playerId: "p_abc123" }
-console.log(rooms.get(result.roomCode)); // Should show the room object with avatar
-
-export function joinRoom(
+function joinRoom(
   roomCode: string,
   playerName: string,
   avatar: string,
 ): { playerId: string } {
-  const room = rooms.get(roomCode);
+  const room: Room | undefined = rooms.get(roomCode);
 
   if (!room) {
     throw new Error("Room not found");
@@ -108,6 +99,88 @@ export function joinRoom(
   return { playerId: playerId };
 }
 
-const room1 = createRoom("Alice", "😎");
-const player2 = joinRoom(room1.roomCode, "Bob", "🔥");
-console.log(rooms.get(room1.roomCode).players.size); // Should be 2
+function leaveRoom(roomCode: string, playerId: string): void {
+  const room: Room | undefined = rooms.get(roomCode);
+
+  if (!room) {
+    throw new Error("Room not found");
+  }
+
+  room.players.delete(playerId);
+
+  // If room is empty, delete it
+  if (room.players.size === 0) {
+    rooms.delete(roomCode);
+    return;
+  }
+
+  // Transfer host if the leaving player was the host
+  if (room.hostId === playerId) {
+    // Make the first remaining player the new host
+    const firstPlayer = Array.from(room.players.keys())[0];
+    room.hostId = firstPlayer;
+  }
+}
+
+function disconnectPlayer(roomCode: string, playerId: string): void {
+  const room: Room | undefined = rooms.get(roomCode);
+
+  if (!room) {
+    return; // Silently ignore if room doesn't exist
+  }
+
+  const player = room.players.get(playerId);
+  if (player) {
+    player.connected = false;
+  }
+}
+
+function reconnectPlayer(roomCode: string, playerId: string): void {
+  const room: Room | undefined = rooms.get(roomCode);
+
+  if (!room) {
+    throw new Error("Room not found");
+  }
+
+  const player = room.players.get(playerId);
+  if (!player) {
+    throw new Error("Player not found in room");
+  }
+
+  player.connected = true;
+}
+
+function getRoom(roomCode: string): Room | undefined {
+  return rooms.get(roomCode);
+}
+
+interface PlayerListItem extends Player {
+  isHost: boolean;
+}
+
+function getRoomPlayerList(roomCode: string): PlayerListItem[] {
+  const room = rooms.get(roomCode);
+  if (!room) return [];
+
+  return Array.from(room.players.values()).map((player) => ({
+    id: player.id,
+    name: player.name,
+    avatar: player.avatar,
+    connected: player.connected,
+    isHost: player.id === room.hostId,
+  }));
+}
+
+export {
+  createRoom,
+  joinRoom,
+  leaveRoom,
+  disconnectPlayer,
+  reconnectPlayer,
+  getRoom,
+  getRoomPlayerList,
+  type Player,
+  type Room,
+  type PlayerListItem,
+  GameStatus,
+};
