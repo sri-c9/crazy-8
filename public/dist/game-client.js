@@ -1,133 +1,127 @@
-// Game client - handles WebSocket connection, rendering, and user interactions
-import { haptic } from "ios-haptics";
-
-interface Card {
-  type: string;
-  color?: string;
-  value?: number;
-  chosenColor?: string | null;
+// node_modules/ios-haptics/dist/index.js
+var supportsHaptics = typeof window === "undefined" ? false : window.matchMedia("(pointer: coarse)").matches;
+function _haptic() {
+  try {
+    if (navigator.vibrate) {
+      navigator.vibrate(50);
+      return;
+    }
+    if (!supportsHaptics)
+      return;
+    const labelEl = document.createElement("label");
+    labelEl.ariaHidden = "true";
+    labelEl.style.display = "none";
+    const inputEl = document.createElement("input");
+    inputEl.type = "checkbox";
+    inputEl.setAttribute("switch", "");
+    labelEl.appendChild(inputEl);
+    document.head.appendChild(labelEl);
+    labelEl.click();
+    document.head.removeChild(labelEl);
+  } catch {}
 }
+_haptic.confirm = () => {
+  if (navigator.vibrate) {
+    navigator.vibrate([
+      50,
+      70,
+      50
+    ]);
+    return;
+  }
+  _haptic();
+  setTimeout(() => _haptic(), 120);
+};
+_haptic.error = () => {
+  if (navigator.vibrate) {
+    navigator.vibrate([
+      50,
+      70,
+      50,
+      70,
+      50
+    ]);
+    return;
+  }
+  _haptic();
+  setTimeout(() => _haptic(), 120);
+  setTimeout(() => _haptic(), 240);
+};
+var __haptic = _haptic;
 
-interface Player {
-  id: string;
-  name: string;
-  avatar: string;
-  connected: boolean;
-  cardCount: number;
-  hand?: Card[];
-}
-
-interface GameState {
-  currentPlayerId: string;
-  topCard: Card;
-  lastPlayedColor: string | null;
-  direction: number;
-  pendingDraws: number;
-  reverseStackCount: number;
-  players: Player[];
-  winner: string | null;
-}
-
-// Global state
-let ws: WebSocket | null = null;
-let yourPlayerId: string | null = null;
-let roomCode: string | null = null;
-let pendingWildCardIndex: number | null = null;
-let currentGameState: GameState | null = null;
-
-// Initialize
+// public/game-client.ts
+var ws = null;
+var yourPlayerId = null;
+var roomCode = null;
+var pendingWildCardIndex = null;
+var currentGameState = null;
 function init() {
-  // Get room and player from URL params
   const params = new URLSearchParams(window.location.search);
   roomCode = params.get("room");
   yourPlayerId = params.get("player");
-
   if (!roomCode || !yourPlayerId) {
     alert("Missing room or player ID");
     window.location.href = "/";
     return;
   }
-
-  document.getElementById("roomBadge")!.textContent = roomCode;
-
+  document.getElementById("roomBadge").textContent = roomCode;
   connectWebSocket();
   setupEventListeners();
 }
-
-// Connect to WebSocket
 function connectWebSocket() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = window.location.host;
   ws = new WebSocket(`${protocol}//${host}/ws`);
-
   ws.onopen = () => {
     console.log("✅ Connected to game");
     hideLoading();
-
-    // Identify ourselves to the server
-    ws!.send(JSON.stringify({
+    ws.send(JSON.stringify({
       action: "rejoin",
-      roomCode: roomCode,
-      playerId: yourPlayerId,
+      roomCode,
+      playerId: yourPlayerId
     }));
   };
-
-  ws.onmessage = (event: MessageEvent) => {
+  ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
     handleMessage(data);
   };
-
   ws.onerror = (err) => {
     console.error("❌ WebSocket error:", err);
     showError("Connection error");
   };
-
   ws.onclose = () => {
-    console.log("🔌 Disconnected");
+    console.log("\uD83D\uDD0C Disconnected");
     showError("Disconnected from server");
   };
 }
-
-// Handle incoming messages
-function handleMessage(data: any) {
-  console.log("📩 Received:", data);
-
+function handleMessage(data) {
+  console.log("\uD83D\uDCE9 Received:", data);
   switch (data.type) {
     case "rejoined":
       console.log("Rejoined room:", data.roomCode);
       break;
-
     case "playerList":
       console.log("Player list updated:", data.players);
       break;
-
     case "state":
       currentGameState = data.gameState;
       renderGameState(data.gameState, data.yourPlayerId);
       break;
-
     case "cardDrawn":
       handleCardDrawn(data.cards, data.forced);
       break;
-
     case "cardEffect":
       handleCardEffect(data.effect);
       break;
-
     case "error":
       showError(data.message);
       break;
-
     default:
       console.log("Unknown message type:", data.type);
   }
 }
-
-// Render complete game state
-function renderGameState(state: GameState, playerId: string) {
+function renderGameState(state, playerId) {
   yourPlayerId = playerId;
-
-  // Check for winner first
   if (state.winner) {
     if (state.winner === "__admin__") {
       showGameOver("Game ended by admin");
@@ -137,37 +131,24 @@ function renderGameState(state: GameState, playerId: string) {
     }
     return;
   }
-
-  // Update turn indicator and hand area
   const isYourTurn = state.currentPlayerId === yourPlayerId;
-  const handArea = document.querySelector(".hand-area") as HTMLElement;
+  const handArea = document.querySelector(".hand-area");
   handArea.classList.toggle("your-turn", isYourTurn);
-
-  // Render opponents
   renderOpponents(state.players, state.currentPlayerId, yourPlayerId);
-
-  // Render top card
   renderTopCard(state.topCard, state.lastPlayedColor);
-
-  // Render your hand
   const yourPlayer = state.players.find((p) => p.id === yourPlayerId);
   if (yourPlayer && yourPlayer.hand) {
     renderHand(yourPlayer.hand, state.topCard, state, isYourTurn);
   }
-
-  // Update pending draws alert
   if (state.pendingDraws > 0) {
-    document.getElementById("pendingAlert")!.classList.remove("hidden");
-    document.getElementById("pendingCount")!.textContent = `+${state.pendingDraws}`;
+    document.getElementById("pendingAlert").classList.remove("hidden");
+    document.getElementById("pendingCount").textContent = `+${state.pendingDraws}`;
   } else {
-    document.getElementById("pendingAlert")!.classList.add("hidden");
+    document.getElementById("pendingAlert").classList.add("hidden");
   }
-
-  // Update direction indicator
-  const directionIndicator = document.getElementById("directionIndicator")!;
-  const directionArrow = document.getElementById("directionArrow")!;
-  directionArrow.textContent = ""; // Clear old text content
-
+  const directionIndicator = document.getElementById("directionIndicator");
+  const directionArrow = document.getElementById("directionArrow");
+  directionArrow.textContent = "";
   if (state.direction === 1) {
     directionIndicator.classList.add("clockwise");
     directionIndicator.classList.remove("counter-clockwise");
@@ -175,30 +156,19 @@ function renderGameState(state: GameState, playerId: string) {
     directionIndicator.classList.add("counter-clockwise");
     directionIndicator.classList.remove("clockwise");
   }
-
-  // Enable/disable draw button based on turn
-  const drawBtn = document.getElementById("drawBtn") as HTMLButtonElement;
+  const drawBtn = document.getElementById("drawBtn");
   drawBtn.disabled = !isYourTurn;
   drawBtn.textContent = state.pendingDraws > 0 ? `Draw +${state.pendingDraws}` : "Draw";
 }
-
-// Render opponents
-function renderOpponents(
-  players: Player[],
-  currentPlayerId: string,
-  yourId: string
-) {
-  const container = document.getElementById("opponentsList")!;
+function renderOpponents(players, currentPlayerId, yourId) {
+  const container = document.getElementById("opponentsList");
   container.innerHTML = "";
-
   const opponents = players.filter((p) => p.id !== yourId);
-  if (opponents.length === 0) return;
-
-  // Calculate semicircular arc positions (160deg to 20deg, left to right)
-  const startAngle = 160; // deg
-  const endAngle = 20; // deg
-  const totalArc = startAngle - endAngle; // 140 degrees
-
+  if (opponents.length === 0)
+    return;
+  const startAngle = 160;
+  const endAngle = 20;
+  const totalArc = startAngle - endAngle;
   opponents.forEach((player, index) => {
     const div = document.createElement("div");
     div.className = "opponent-node";
@@ -208,124 +178,82 @@ function renderOpponents(
     if (!player.connected) {
       div.classList.add("disconnected");
     }
-
-    // Calculate angle for this opponent
-    let angle: number;
+    let angle;
     if (opponents.length === 1) {
-      angle = 90; // Center top
+      angle = 90;
     } else {
       const step = totalArc / (opponents.length - 1);
-      angle = startAngle - (step * index);
+      angle = startAngle - step * index;
     }
-
-    // Convert angle to position on semicircle
-    const angleRad = (angle * Math.PI) / 180;
-    const radius = 40; // percentage of container width/height
-    const centerX = 50; // center of screen
-    const centerY = 45; // slightly above vertical center
-
+    const angleRad = angle * Math.PI / 180;
+    const radius = 40;
+    const centerX = 50;
+    const centerY = 45;
     const x = centerX + radius * Math.cos(angleRad);
     const y = centerY - radius * Math.sin(angleRad);
-
-    // Position the opponent node
     div.style.left = `${x}%`;
     div.style.top = `${y}%`;
     div.style.transform = "translate(-50%, -50%)";
-
     const avatarCircle = document.createElement("div");
     avatarCircle.className = "opponent-avatar-circle";
     avatarCircle.textContent = player.avatar;
     div.appendChild(avatarCircle);
-
     const nameDiv = document.createElement("div");
     nameDiv.className = "opponent-name";
     nameDiv.textContent = player.name;
     div.appendChild(nameDiv);
-
     const countDiv = document.createElement("div");
     countDiv.className = "opponent-card-count";
     countDiv.textContent = `${player.cardCount} card${player.cardCount !== 1 ? "s" : ""}`;
     div.appendChild(countDiv);
-
     container.appendChild(div);
   });
 }
-
-// Render your hand
-function renderHand(
-  hand: Card[],
-  topCard: Card,
-  state: GameState,
-  isYourTurn: boolean
-) {
-  const container = document.getElementById("handCards")!;
+function renderHand(hand, topCard, state, isYourTurn) {
+  const container = document.getElementById("handCards");
   container.innerHTML = "";
-
   if (hand.length === 0) {
     container.innerHTML = '<p class="empty-hand">No cards</p>';
     return;
   }
-
   const count = hand.length;
   const cardSpacing = Math.min(48, 280 / count);
-  const maxRotation = 40; // degrees
-
+  const maxRotation = 40;
   hand.forEach((card, index) => {
     const cardEl = createCardElement(card);
     cardEl.dataset.index = index.toString();
-
-    // Determine if card is playable
     const isPlayable = isYourTurn && canPlayCardClient(card, topCard, state);
-
     if (isPlayable) {
       cardEl.classList.add("playable");
       cardEl.onclick = () => handleCardClick(index, card);
     } else {
       cardEl.classList.add("unplayable");
     }
-
-    // Calculate fan layout positioning
-    const normalizedIndex = count === 1 ? 0 : (index / (count - 1)) - 0.5; // -0.5 to 0.5
+    const normalizedIndex = count === 1 ? 0 : index / (count - 1) - 0.5;
     const rotation = normalizedIndex * maxRotation;
-
-    // Arc effect: edges lower than center
-    const arcDepth = 20; // pixels
+    const arcDepth = 20;
     const yOffset = Math.abs(normalizedIndex) * 2 * arcDepth;
-
-    // Playable cards get lifted 8px higher
     const playableLift = isPlayable ? 8 : 0;
-
-    // Position from left
     const leftPosition = (count - 1) * cardSpacing / 2 - index * cardSpacing;
-
-    // Z-index increases left to right
     const zIndex = index;
-
-    // Apply styles
     cardEl.style.left = `calc(50% - ${leftPosition}px)`;
     cardEl.style.bottom = `${10 + playableLift - yOffset}px`;
     cardEl.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
     cardEl.style.zIndex = zIndex.toString();
-
     container.appendChild(cardEl);
   });
-
-  document.getElementById("cardCount")!.textContent = hand.length.toString();
+  document.getElementById("cardCount").textContent = hand.length.toString();
 }
-
-// Create card element
-function createCardElement(card: Card): HTMLElement {
+function createCardElement(card) {
   const div = document.createElement("div");
   const color = card.color || card.chosenColor || "wild";
   div.className = `card ${color}`;
-
   let content = "";
   let cornerValue = "";
-
   switch (card.type) {
     case "number":
       content = `<span class="card-value">${card.value}</span>`;
-      cornerValue = card.value!.toString();
+      cornerValue = card.value.toString();
       break;
     case "wild":
       content = `<span class="card-value">8</span><span class="card-type">WILD</span>`;
@@ -352,30 +280,23 @@ function createCardElement(card: Card): HTMLElement {
       cornerValue = "⇄";
       break;
   }
-
-  // Add corner numbers
   div.innerHTML = `
     <span class="card-corner card-corner-tl">${cornerValue}</span>
     ${content}
     <span class="card-corner card-corner-br">${cornerValue}</span>
   `;
-
   return div;
 }
-
-// Render top card
-function renderTopCard(card: Card, lastColor: string | null) {
-  const topCard = document.getElementById("topCard")!;
+function renderTopCard(card, lastColor) {
+  const topCard = document.getElementById("topCard");
   const displayColor = card.color || lastColor || "wild";
   topCard.className = `card ${displayColor}`;
-
   let content = "";
   let cornerValue = "";
-
   switch (card.type) {
     case "number":
       content = `<span class="card-value">${card.value}</span>`;
-      cornerValue = card.value!.toString();
+      cornerValue = card.value.toString();
       break;
     case "wild":
       content = `<span class="card-value">8</span>`;
@@ -402,221 +323,143 @@ function renderTopCard(card: Card, lastColor: string | null) {
       cornerValue = "⇄";
       break;
   }
-
-  // Add corner numbers
   topCard.innerHTML = `
     <span class="card-corner card-corner-tl">${cornerValue}</span>
     ${content}
     <span class="card-corner card-corner-br">${cornerValue}</span>
   `;
 }
-
-// Handle card click
-function handleCardClick(index: number, card: Card) {
+function handleCardClick(index, card) {
   if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
-    // Show color picker for cards that require color selection
     pendingWildCardIndex = index;
     showColorPicker();
   } else {
-    // Play card immediately
     playCard(index);
   }
 }
-
-// Play a card
-function playCard(index: number, chosenColor?: string) {
-  if (!ws) return;
-
-  // Light haptic feedback on card play
+function playCard(index, chosenColor) {
+  if (!ws)
+    return;
   try {
     if (navigator.vibrate) {
       navigator.vibrate(50);
     } else {
-      haptic();
+      __haptic();
     }
   } catch {}
-
-  ws.send(
-    JSON.stringify({
-      action: "play",
-      cardIndex: index,
-      chosenColor,
-    })
-  );
+  ws.send(JSON.stringify({
+    action: "play",
+    cardIndex: index,
+    chosenColor
+  }));
 }
-
-// Draw card
 function drawCards() {
-  if (!ws) return;
-
-  ws.send(
-    JSON.stringify({
-      action: "draw",
-    })
-  );
+  if (!ws)
+    return;
+  ws.send(JSON.stringify({
+    action: "draw"
+  }));
 }
-
-// Trigger haptic feedback for forced draws
-function triggerDrawHaptic(cardCount: number) {
+function triggerDrawHaptic(cardCount) {
   try {
     if (cardCount <= 2) {
-      haptic(); // Single pulse for +2
+      __haptic();
     } else if (cardCount <= 4) {
-      haptic.confirm(); // Two rapid pulses for +4
+      __haptic.confirm();
     } else {
-      haptic.error(); // Three rapid pulses for +20 or stacked combos
+      __haptic.error();
     }
-  } catch {
-    // Silently ignore on unsupported platforms
-  }
+  } catch {}
 }
-
-// Handle card drawn
-function handleCardDrawn(cards: Card[], forced: boolean) {
+function handleCardDrawn(cards, forced) {
   console.log(`Drew ${cards.length} card(s)`, forced ? "(forced)" : "");
-
-  // Trigger haptic feedback for forced draws
   if (forced && cards.length > 1) {
     triggerDrawHaptic(cards.length);
   }
-
-  // Show toast
-  const message = forced
-    ? `Drew ${cards.length} cards from plus-stack!`
-    : `Drew ${cards.length} card${cards.length !== 1 ? "s" : ""}`;
-
+  const message = forced ? `Drew ${cards.length} cards from plus-stack!` : `Drew ${cards.length} card${cards.length !== 1 ? "s" : ""}`;
   showToast(message);
 }
-
-// Handle card effects (skip/reverse)
-function handleCardEffect(effect: string) {
+function handleCardEffect(effect) {
   try {
     if (effect === "skipped") {
-      haptic(); // Single pulse — you got skipped
+      __haptic();
       showToast("You were skipped!");
     } else if (effect === "reversed") {
-      navigator.vibrate?.(30) || haptic(); // Light buzz — direction changed
+      navigator.vibrate?.(30) || __haptic();
     }
   } catch {}
 }
-
-// Client-side validation (matches server logic)
-function canPlayCardClient(card: Card, topCard: Card, state: GameState): boolean {
-  // If pendingDraws > 0, only +cards can be played
+function canPlayCardClient(card, topCard, state) {
   if (state.pendingDraws > 0) {
     return card.type === "plus2" || card.type === "plus4" || card.type === "plus20";
   }
-
-  // Wild cards always playable
-  if (card.type === "wild") return true;
-
-  // +cards can stack on any +card
-  if (
-    (card.type === "plus2" || card.type === "plus4" || card.type === "plus20") &&
-    (topCard.type === "plus2" || topCard.type === "plus4" || topCard.type === "plus20")
-  ) {
+  if (card.type === "wild")
+    return true;
+  if ((card.type === "plus2" || card.type === "plus4" || card.type === "plus20") && (topCard.type === "plus2" || topCard.type === "plus4" || topCard.type === "plus20")) {
     return true;
   }
-
-  // Reverse limit
   if (card.type === "reverse" && state.reverseStackCount >= 4) {
     return false;
   }
-
-  // Get target color
-  const targetColor =
-    topCard.type === "wild"
-      ? state.lastPlayedColor
-      : topCard.color || state.lastPlayedColor; // +4/+20 don't have color property; use the color chosen when played
-
-  // Match color
-  if (card.color === targetColor) return true;
-
-  // Match number
+  const targetColor = topCard.type === "wild" ? state.lastPlayedColor : topCard.color || state.lastPlayedColor;
+  if (card.color === targetColor)
+    return true;
   if (card.type === "number" && topCard.type === "number" && card.value === topCard.value) {
     return true;
   }
-
   return false;
 }
-
-// Show color picker
 function showColorPicker() {
-  document.getElementById("colorPicker")!.classList.remove("hidden");
+  document.getElementById("colorPicker").classList.remove("hidden");
 }
-
-// Hide color picker
 function hideColorPicker() {
-  document.getElementById("colorPicker")!.classList.add("hidden");
+  document.getElementById("colorPicker").classList.add("hidden");
   pendingWildCardIndex = null;
 }
-
-// Show game over
-function showGameOver(winnerName: string) {
-  document.getElementById("winnerName")!.textContent = winnerName;
-  document.getElementById("gameOver")!.classList.remove("hidden");
+function showGameOver(winnerName) {
+  document.getElementById("winnerName").textContent = winnerName;
+  document.getElementById("gameOver").classList.remove("hidden");
 }
-
-// Show error toast
-function showError(message: string) {
+function showError(message) {
   showToast(`❌ ${message}`, true);
 }
-
-// Show toast notification
-function showToast(message: string, isError: boolean = false) {
+function showToast(message, isError = false) {
   const toast = document.createElement("div");
   toast.className = `toast ${isError ? "error" : ""}`;
   toast.textContent = message;
   document.body.appendChild(toast);
-
   setTimeout(() => toast.classList.add("show"), 10);
-
   setTimeout(() => {
     toast.classList.remove("show");
     setTimeout(() => toast.remove(), 300);
   }, 3000);
 }
-
-// Hide loading overlay
 function hideLoading() {
-  document.getElementById("loadingOverlay")!.classList.add("hidden");
+  document.getElementById("loadingOverlay").classList.add("hidden");
 }
-
-// Setup event listeners
 function setupEventListeners() {
-  // Draw button
-  document.getElementById("drawBtn")!.onclick = () => {
+  document.getElementById("drawBtn").onclick = () => {
     drawCards();
   };
-
-  // Color picker buttons
   document.querySelectorAll(".color-btn").forEach((btn) => {
     btn.addEventListener("click", (e) => {
-      const color = (e.target as HTMLElement).dataset.color;
+      const color = e.target.dataset.color;
       if (pendingWildCardIndex !== null && color) {
         playCard(pendingWildCardIndex, color);
         hideColorPicker();
       }
     });
   });
-
-  // Color picker overlay (click to cancel)
   document.getElementById("colorPickerOverlay")?.addEventListener("click", () => {
     hideColorPicker();
   });
-
-  // Back to lobby button
-  document.getElementById("backToLobbyBtn")!.onclick = () => {
+  document.getElementById("backToLobbyBtn").onclick = () => {
     window.location.href = "/";
   };
-
-  // Menu button
-  document.getElementById("menuBtn")!.onclick = () => {
+  document.getElementById("menuBtn").onclick = () => {
     if (confirm("Leave game and return to lobby?")) {
       window.location.href = "/";
     }
   };
 }
-
-// Start the game client
 init();

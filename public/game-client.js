@@ -1,3 +1,54 @@
+// node_modules/ios-haptics/dist/index.js
+var supportsHaptics = typeof window === "undefined" ? false : window.matchMedia("(pointer: coarse)").matches;
+function _haptic() {
+  try {
+    if (navigator.vibrate) {
+      navigator.vibrate(50);
+      return;
+    }
+    if (!supportsHaptics)
+      return;
+    const labelEl = document.createElement("label");
+    labelEl.ariaHidden = "true";
+    labelEl.style.display = "none";
+    const inputEl = document.createElement("input");
+    inputEl.type = "checkbox";
+    inputEl.setAttribute("switch", "");
+    labelEl.appendChild(inputEl);
+    document.head.appendChild(labelEl);
+    labelEl.click();
+    document.head.removeChild(labelEl);
+  } catch {}
+}
+_haptic.confirm = () => {
+  if (navigator.vibrate) {
+    navigator.vibrate([
+      50,
+      70,
+      50
+    ]);
+    return;
+  }
+  _haptic();
+  setTimeout(() => _haptic(), 120);
+};
+_haptic.error = () => {
+  if (navigator.vibrate) {
+    navigator.vibrate([
+      50,
+      70,
+      50,
+      70,
+      50
+    ]);
+    return;
+  }
+  _haptic();
+  setTimeout(() => _haptic(), 120);
+  setTimeout(() => _haptic(), 240);
+};
+var __haptic = _haptic;
+
 // public/game-client.ts
 var ws = null;
 var yourPlayerId = null;
@@ -24,6 +75,11 @@ function connectWebSocket() {
   ws.onopen = () => {
     console.log("✅ Connected to game");
     hideLoading();
+    ws.send(JSON.stringify({
+      action: "rejoin",
+      roomCode,
+      playerId: yourPlayerId
+    }));
   };
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
@@ -41,12 +97,21 @@ function connectWebSocket() {
 function handleMessage(data) {
   console.log("\uD83D\uDCE9 Received:", data);
   switch (data.type) {
+    case "rejoined":
+      console.log("Rejoined room:", data.roomCode);
+      break;
+    case "playerList":
+      console.log("Player list updated:", data.players);
+      break;
     case "state":
       currentGameState = data.gameState;
       renderGameState(data.gameState, data.yourPlayerId);
       break;
     case "cardDrawn":
       handleCardDrawn(data.cards, data.forced);
+      break;
+    case "cardEffect":
+      handleCardEffect(data.effect);
       break;
     case "error":
       showError(data.message);
@@ -58,8 +123,12 @@ function handleMessage(data) {
 function renderGameState(state, playerId) {
   yourPlayerId = playerId;
   if (state.winner) {
-    const winner = state.players.find((p) => p.id === state.winner);
-    showGameOver(winner.name);
+    if (state.winner === "__admin__") {
+      showGameOver("Game ended by admin");
+    } else {
+      const winner = state.players.find((p) => p.id === state.winner);
+      showGameOver(winner ? winner.name : "Unknown player");
+    }
     return;
   }
   const isYourTurn = state.currentPlayerId === yourPlayerId;
@@ -88,6 +157,7 @@ function renderGameState(state, playerId) {
   document.getElementById("directionArrow").textContent = arrow;
   const drawBtn = document.getElementById("drawBtn");
   drawBtn.disabled = !isYourTurn;
+  drawBtn.textContent = state.pendingDraws > 0 ? `Draw +${state.pendingDraws}` : "Draw";
 }
 function renderOpponents(players, currentPlayerId, yourId) {
   const container = document.getElementById("opponentsList");
@@ -101,11 +171,18 @@ function renderOpponents(players, currentPlayerId, yourId) {
     if (!player.connected) {
       div.classList.add("disconnected");
     }
-    div.innerHTML = `
-        <div class="opponent-avatar">${player.avatar}</div>
-        <div class="opponent-name">${player.name}</div>
-        <div class="opponent-card-count">${player.cardCount} card${player.cardCount !== 1 ? "s" : ""}</div>
-      `;
+    const avatarDiv = document.createElement("div");
+    avatarDiv.className = "opponent-avatar";
+    avatarDiv.textContent = player.avatar;
+    div.appendChild(avatarDiv);
+    const nameDiv = document.createElement("div");
+    nameDiv.className = "opponent-name";
+    nameDiv.textContent = player.name;
+    div.appendChild(nameDiv);
+    const countDiv = document.createElement("div");
+    countDiv.className = "opponent-card-count";
+    countDiv.textContent = `${player.cardCount} card${player.cardCount !== 1 ? "s" : ""}`;
+    div.appendChild(countDiv);
     container.appendChild(div);
   });
 }
@@ -190,7 +267,7 @@ function renderTopCard(card, lastColor) {
   topCard.innerHTML = content;
 }
 function handleCardClick(index, card) {
-  if (card.type === "wild") {
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
     pendingWildCardIndex = index;
     showColorPicker();
   } else {
@@ -200,6 +277,13 @@ function handleCardClick(index, card) {
 function playCard(index, chosenColor) {
   if (!ws)
     return;
+  try {
+    if (navigator.vibrate) {
+      navigator.vibrate(50);
+    } else {
+      __haptic();
+    }
+  } catch {}
   ws.send(JSON.stringify({
     action: "play",
     cardIndex: index,
@@ -213,10 +297,34 @@ function drawCards() {
     action: "draw"
   }));
 }
+function triggerDrawHaptic(cardCount) {
+  try {
+    if (cardCount <= 2) {
+      __haptic();
+    } else if (cardCount <= 4) {
+      __haptic.confirm();
+    } else {
+      __haptic.error();
+    }
+  } catch {}
+}
 function handleCardDrawn(cards, forced) {
   console.log(`Drew ${cards.length} card(s)`, forced ? "(forced)" : "");
+  if (forced && cards.length > 1) {
+    triggerDrawHaptic(cards.length);
+  }
   const message = forced ? `Drew ${cards.length} cards from plus-stack!` : `Drew ${cards.length} card${cards.length !== 1 ? "s" : ""}`;
   showToast(message);
+}
+function handleCardEffect(effect) {
+  try {
+    if (effect === "skipped") {
+      __haptic();
+      showToast("You were skipped!");
+    } else if (effect === "reversed") {
+      navigator.vibrate?.(30) || __haptic();
+    }
+  } catch {}
 }
 function canPlayCardClient(card, topCard, state) {
   if (state.pendingDraws > 0) {
@@ -230,7 +338,7 @@ function canPlayCardClient(card, topCard, state) {
   if (card.type === "reverse" && state.reverseStackCount >= 4) {
     return false;
   }
-  const targetColor = topCard.type === "wild" && state.lastPlayedColor ? state.lastPlayedColor : topCard.color;
+  const targetColor = topCard.type === "wild" ? state.lastPlayedColor : topCard.color || state.lastPlayedColor;
   if (card.color === targetColor)
     return true;
   if (card.type === "number" && topCard.type === "number" && card.value === topCard.value) {
