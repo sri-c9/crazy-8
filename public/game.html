@@ -10,15 +10,12 @@
   <!-- Top Bar -->
   <div class="top-bar">
     <span class="room-badge" id="roomBadge">----</span>
-    <span class="turn-indicator" id="turnIndicator">Loading...</span>
     <button class="menu-btn" id="menuBtn" title="Menu">⋮</button>
   </div>
 
   <!-- Opponents Area -->
-  <div class="opponents-container">
-    <div id="opponentsList" class="opponents-scroll">
-      <!-- Opponent cards rendered here -->
-    </div>
+  <div class="opponents-ring" id="opponentsList">
+    <!-- Opponent nodes rendered here -->
   </div>
 
   <!-- Center: Draw & Discard Piles -->
@@ -31,8 +28,12 @@
     <div class="piles-container">
       <!-- Draw Pile -->
       <div class="pile draw-pile">
-        <div class="card-back">🎴</div>
-        <button id="drawBtn" class="pile-btn">Draw</button>
+        <div class="draw-pile-stack">
+          <div class="card-back stack-card"></div>
+          <div class="card-back stack-card"></div>
+          <div class="card-back stack-card"></div>
+        </div>
+        <button id="drawBtn" class="draw-btn">Draw</button>
       </div>
 
       <!-- Discard Pile -->
@@ -44,19 +45,17 @@
     </div>
 
     <!-- Direction Indicator -->
-    <div class="direction-indicator" id="directionIndicator">
-      <span id="directionArrow">→</span>
-      <span class="direction-label">Direction</span>
+    <div class="direction-indicator clockwise" id="directionIndicator">
+      <span class="direction-arrow" id="directionArrow"></span>
     </div>
   </div>
 
   <!-- Your Hand -->
   <div class="hand-area">
-    <div class="hand-header">
-      <span class="hand-label">Your cards:</span>
+    <div class="hand-info">
       <span class="card-count-badge" id="cardCount">0</span>
     </div>
-    <div id="handCards" class="hand-cards-scroll">
+    <div id="handCards" class="hand-fan">
       <!-- Cards rendered here -->
     </div>
   </div>
@@ -64,7 +63,7 @@
   <!-- Color Picker Modal -->
   <div id="colorPicker" class="modal hidden">
     <div class="modal-overlay" id="colorPickerOverlay"></div>
-    <div class="modal-content">
+    <div class="modal-content color-picker-content">
       <h3>Choose a color:</h3>
       <div class="color-buttons">
         <button class="color-btn red" data-color="red" title="Red"></button>
@@ -91,6 +90,6 @@
     <p>Connecting...</p>
   </div>
 
-  <script type="module" src="game-client.js"></script>
+  <script type="module" src="dist/game-client.js"></script>
 </body>
 </html>
