@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Insane Crazy 8 - Lobby</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>🎮 Insane Crazy 8</h1>
+
+    <div class="status" id="status">
+      <span id="connectionStatus">⚪ Connecting...</span>
+    </div>
+
+    <!-- Player Setup -->
+    <div class="section" id="setupSection">
+      <h2>Player Setup</h2>
+
+      <div class="form-group">
+        <label>Your Name:</label>
+        <input type="text" id="playerName" placeholder="Enter your name" maxlength="20" />
+      </div>
+
+      <div class="form-group">
+        <label>Choose Avatar:</label>
+        <div class="avatar-grid" id="avatarGrid">
+          <button class="avatar-btn" data-avatar="😎">😎</button>
+          <button class="avatar-btn" data-avatar="🔥">🔥</button>
+          <button class="avatar-btn" data-avatar="👻">👻</button>
+          <button class="avatar-btn" data-avatar="🎮">🎮</button>
+          <button class="avatar-btn" data-avatar="🚀">🚀</button>
+          <button class="avatar-btn" data-avatar="⚡">⚡</button>
+          <button class="avatar-btn" data-avatar="🎯">🎯</button>
+          <button class="avatar-btn" data-avatar="🌟">🌟</button>
+          <button class="avatar-btn" data-avatar="🎨">🎨</button>
+          <button class="avatar-btn" data-avatar="🎭">🎭</button>
+          <button class="avatar-btn" data-avatar="🎪">🎪</button>
+          <button class="avatar-btn" data-avatar="🎲">🎲</button>
+        </div>
+        <div class="selected-avatar">Selected: <span id="selectedAvatar">😎</span></div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="createBtn">Create Room</button>
+        <div class="divider">OR</div>
+        <input type="text" id="joinCode" placeholder="Room Code (e.g., ABXY)" maxlength="4" style="text-transform: uppercase;" />
+        <button class="btn btn-secondary" id="joinBtn">Join Room</button>
+      </div>
+    </div>
+
+    <!-- Room Display -->
+    <div class="section hidden" id="roomSection">
+      <h2>Room: <span id="roomCode"></span></h2>
+
+      <div class="room-info">
+        <p>Share this code with friends:</p>
+        <div class="code-display" id="codeDisplay"></div>
+      </div>
+
+      <h3>Players (<span id="playerCount">0</span>/6)</h3>
+      <div class="player-list" id="playerList"></div>
+
+      <!-- Start Game Button (host only, min 3 players) -->
+      <button class="btn btn-primary hidden" id="startGameBtn">Start Game</button>
+      <p id="waitingMessage" class="hidden">Waiting for host to start...</p>
+    </div>
+
+    <!-- Error Display -->
+    <div class="error hidden" id="errorDisplay"></div>
+  </div>
+
+  <script>
+    let ws = null;
+    let selectedAvatar = "😎";
+    let currentRoomCode = null;
+    let currentPlayerId = null;
+    let isHost = false;
+
+    // DOM elements
+    const statusEl = document.getElementById("connectionStatus");
+    const setupSection = document.getElementById("setupSection");
+    const roomSection = document.getElementById("roomSection");
+    const playerNameInput = document.getElementById("playerName");
+    const joinCodeInput = document.getElementById("joinCode");
+    const createBtn = document.getElementById("createBtn");
+    const joinBtn = document.getElementById("joinBtn");
+    const roomCodeEl = document.getElementById("roomCode");
+    const codeDisplayEl = document.getElementById("codeDisplay");
+    const playerListEl = document.getElementById("playerList");
+    const playerCountEl = document.getElementById("playerCount");
+    const errorDisplayEl = document.getElementById("errorDisplay");
+    const avatarBtns = document.querySelectorAll(".avatar-btn");
+    const selectedAvatarEl = document.getElementById("selectedAvatar");
+
+    // Initialize WebSocket
+    function connectWebSocket() {
+      ws = new WebSocket("ws://localhost:3000/ws");
+
+      ws.onopen = () => {
+        console.log("✅ WebSocket connected");
+        statusEl.textContent = "🟢 Connected";
+        statusEl.style.color = "#4caf50";
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log("📩 Received:", data);
+        handleMessage(data);
+      };
+
+      ws.onerror = (error) => {
+        console.error("❌ WebSocket error:", error);
+        statusEl.textContent = "🔴 Connection Error";
+        statusEl.style.color = "#f44336";
+      };
+
+      ws.onclose = () => {
+        console.log("🔌 WebSocket closed");
+        statusEl.textContent = "🔴 Disconnected";
+        statusEl.style.color = "#f44336";
+      };
+    }
+
+    // Handle incoming messages
+    function handleMessage(data) {
+      switch (data.type) {
+        case "roomCreated":
+          currentRoomCode = data.roomCode;
+          currentPlayerId = data.playerId;
+          isHost = true;  // Creator is always host
+          showRoom(data.roomCode);
+          break;
+
+        case "joined":
+          currentRoomCode = data.roomCode;
+          currentPlayerId = data.playerId;
+          showRoom(data.roomCode);
+          break;
+
+        case "playerList":
+          updatePlayerList(data.players);
+          break;
+
+        case "gameStarted":
+          // Redirect to game page
+          window.location.href = `/game.html?room=${currentRoomCode}&player=${currentPlayerId}`;
+          break;
+
+        case "error":
+          showError(data.message);
+          break;
+
+        default:
+          console.log("Unknown message type:", data.type);
+      }
+    }
+
+    // Avatar selection
+    avatarBtns.forEach(btn => {
+      btn.addEventListener("click", () => {
+        avatarBtns.forEach(b => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        selectedAvatar = btn.dataset.avatar;
+        selectedAvatarEl.textContent = selectedAvatar;
+      });
+    });
+
+    // Create room
+    createBtn.addEventListener("click", () => {
+      const playerName = playerNameInput.value.trim();
+      if (!playerName) {
+        showError("Please enter your name");
+        return;
+      }
+
+      ws.send(JSON.stringify({
+        action: "create",
+        playerName,
+        avatar: selectedAvatar
+      }));
+    });
+
+    // Join room
+    joinBtn.addEventListener("click", () => {
+      const playerName = playerNameInput.value.trim();
+      const roomCode = joinCodeInput.value.trim().toUpperCase();
+
+      if (!playerName) {
+        showError("Please enter your name");
+        return;
+      }
+
+      if (!roomCode || roomCode.length !== 4) {
+        showError("Please enter a valid 4-character room code");
+        return;
+      }
+
+      ws.send(JSON.stringify({
+        action: "join",
+        roomCode,
+        playerName,
+        avatar: selectedAvatar
+      }));
+    });
+
+    // Show room section
+    function showRoom(roomCode) {
+      setupSection.classList.add("hidden");
+      roomSection.classList.remove("hidden");
+      roomCodeEl.textContent = roomCode;
+      codeDisplayEl.textContent = roomCode;
+    }
+
+    // Update player list
+    function updatePlayerList(players) {
+      playerListEl.innerHTML = "";
+      playerCountEl.textContent = players.length;
+
+      players.forEach(player => {
+        const playerDiv = document.createElement("div");
+        playerDiv.className = "player-card" + (player.connected ? "" : " disconnected");
+        playerDiv.innerHTML = `
+          <span class="player-avatar">${player.avatar}</span>
+          <span class="player-name">${player.name}</span>
+          ${player.isHost ? '<span class="host-badge">👑 Host</span>' : ''}
+          ${!player.connected ? '<span class="status-badge">⚠️ Disconnected</span>' : ''}
+        `;
+        playerListEl.appendChild(playerDiv);
+      });
+
+      // Show/hide start game button
+      const startGameBtn = document.getElementById("startGameBtn");
+      const waitingMessage = document.getElementById("waitingMessage");
+
+      if (isHost && players.length >= 3) {
+        startGameBtn.classList.remove("hidden");
+        waitingMessage.classList.add("hidden");
+      } else if (isHost && players.length < 3) {
+        startGameBtn.classList.add("hidden");
+        waitingMessage.classList.remove("hidden");
+        waitingMessage.textContent = `Need ${3 - players.length} more player(s) to start`;
+      } else {
+        startGameBtn.classList.add("hidden");
+        waitingMessage.classList.remove("hidden");
+        waitingMessage.textContent = "Waiting for host to start...";
+      }
+    }
+
+    // Show error
+    function showError(message) {
+      errorDisplayEl.textContent = "❌ " + message;
+      errorDisplayEl.classList.remove("hidden");
+      setTimeout(() => {
+        errorDisplayEl.classList.add("hidden");
+      }, 3000);
+    }
+
+    // Start game button
+    document.getElementById("startGameBtn").addEventListener("click", () => {
+      if (!ws || !currentRoomCode) {
+        showError("Not connected to a room");
+        return;
+      }
+
+      ws.send(JSON.stringify({
+        action: "startGame"
+      }));
+    });
+
+    // Convert room code input to uppercase
+    joinCodeInput.addEventListener("input", (e) => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+
+    // Initialize
+    connectWebSocket();
+
+    // Select first avatar by default
+    avatarBtns[0].classList.add("selected");
+  </script>
+</body>
+</html>
