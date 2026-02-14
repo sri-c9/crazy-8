@@ -537,6 +537,57 @@ input[type="text"]:focus {
   z-index: 1;
 }
 
+.draw-pile-stack {
+  position: relative;
+  width: 72px;
+  height: 108px;
+}
+
+.draw-pile-stack .stack-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.draw-pile-stack .stack-card:nth-child(1) {
+  transform: translate(-3px, -3px) rotate(-2deg);
+  z-index: 1;
+}
+
+.draw-pile-stack .stack-card:nth-child(2) {
+  transform: translate(0px, 0px) rotate(1deg);
+  z-index: 2;
+}
+
+.draw-pile-stack .stack-card:nth-child(3) {
+  transform: translate(2px, 2px) rotate(-1deg);
+  z-index: 3;
+}
+
+.draw-btn {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  border: 2px solid white;
+  padding: 12px 24px;
+  border-radius: 25px;
+  font-weight: 700;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s;
+  backdrop-filter: blur(5px);
+}
+
+.draw-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(255, 255, 255, 0.3);
+}
+
+.draw-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .pile-btn {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
@@ -562,20 +613,42 @@ input[type="text"]:focus {
 
 .direction-indicator {
   position: absolute;
-  bottom: 20px;
-  right: 20px;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  padding: 12px 20px;
-  border-radius: 15px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  width: 320px;
+  height: 320px;
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
-#directionArrow {
-  font-size: 24px;
+.direction-arrow {
+  position: absolute;
+  font-size: 32px;
   color: #ffd700;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s;
+}
+
+.direction-indicator.clockwise .direction-arrow {
+  top: 10%;
+  right: 10%;
+  transform: translate(50%, -50%);
+}
+
+.direction-indicator.clockwise .direction-arrow::before {
+  content: '↻';
+}
+
+.direction-indicator.counter-clockwise .direction-arrow {
+  top: 10%;
+  left: 10%;
+  transform: translate(-50%, -50%);
+}
+
+.direction-indicator.counter-clockwise .direction-arrow::before {
+  content: '↺';
 }
 
 .direction-label {
@@ -957,6 +1030,20 @@ input[type="text"]:focus {
 
   .card-back::after {
     font-size: 36px;
+  }
+
+  .draw-pile-stack {
+    width: 60px;
+    height: 90px;
+  }
+
+  .direction-indicator {
+    width: 260px;
+    height: 260px;
+  }
+
+  .direction-arrow {
+    font-size: 28px;
   }
 
   .modal-content {
