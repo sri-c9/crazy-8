@@ -138,18 +138,10 @@ function renderGameState(state: GameState, playerId: string) {
     return;
   }
 
-  // Update turn indicator
+  // Update turn indicator and hand area
   const isYourTurn = state.currentPlayerId === yourPlayerId;
-  const turnIndicator = document.getElementById("turnIndicator")!;
-
-  if (isYourTurn) {
-    turnIndicator.textContent = "🎯 Your turn!";
-    turnIndicator.className = "turn-indicator your-turn";
-  } else {
-    const currentPlayer = state.players.find((p) => p.id === state.currentPlayerId);
-    turnIndicator.textContent = `${currentPlayer?.name}'s turn`;
-    turnIndicator.className = "turn-indicator";
-  }
+  const handArea = document.querySelector(".hand-area") as HTMLElement;
+  handArea.classList.toggle("your-turn", isYourTurn);
 
   // Render opponents
   renderOpponents(state.players, state.currentPlayerId, yourPlayerId);
@@ -172,8 +164,14 @@ function renderGameState(state: GameState, playerId: string) {
   }
 
   // Update direction indicator
-  const arrow = state.direction === 1 ? "→" : "←";
-  document.getElementById("directionArrow")!.textContent = arrow;
+  const directionIndicator = document.getElementById("directionIndicator")!;
+  if (state.direction === 1) {
+    directionIndicator.classList.add("clockwise");
+    directionIndicator.classList.remove("counter-clockwise");
+  } else {
+    directionIndicator.classList.add("counter-clockwise");
+    directionIndicator.classList.remove("clockwise");
+  }
 
   // Enable/disable draw button based on turn
   const drawBtn = document.getElementById("drawBtn") as HTMLButtonElement;
