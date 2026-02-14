@@ -165,6 +165,9 @@ function renderGameState(state: GameState, playerId: string) {
 
   // Update direction indicator
   const directionIndicator = document.getElementById("directionIndicator")!;
+  const directionArrow = document.getElementById("directionArrow")!;
+  directionArrow.textContent = ""; // Clear old text content
+
   if (state.direction === 1) {
     directionIndicator.classList.add("clockwise");
     directionIndicator.classList.remove("counter-clockwise");
