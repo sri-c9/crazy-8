@@ -547,6 +547,8 @@ input[type="text"]:focus {
   position: absolute;
   top: 0;
   left: 0;
+  width: 72px;
+  height: 108px;
 }
 
 .draw-pile-stack .stack-card:nth-child(1) {
@@ -579,8 +581,6 @@ input[type="text"]:focus {
 
 .draw-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.25);
-  transform: translateY(-3px);
-  box-shadow: 0 6px 20px rgba(255, 255, 255, 0.3);
 }
 
 .draw-btn:disabled {
@@ -1033,6 +1033,11 @@ input[type="text"]:focus {
   }
 
   .draw-pile-stack {
+    width: 60px;
+    height: 90px;
+  }
+
+  .draw-pile-stack .stack-card {
     width: 60px;
     height: 90px;
   }
