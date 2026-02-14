@@ -30,3 +30,6 @@ temp/
 public/dist/
 public/game-client.js
 public/admin-client.js
+
+# Development worktrees
+.worktrees/
