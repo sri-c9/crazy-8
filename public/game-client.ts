@@ -1,4 +1,5 @@
 // Game client - handles WebSocket connection, rendering, and user interactions
+import { haptic } from "ios-haptics";
 
 interface Card {
   type: string;
@@ -62,6 +63,13 @@ function connectWebSocket() {
   ws.onopen = () => {
     console.log("✅ Connected to game");
     hideLoading();
+
+    // Identify ourselves to the server
+    ws!.send(JSON.stringify({
+      action: "rejoin",
+      roomCode: roomCode,
+      playerId: yourPlayerId,
+    }));
   };
 
   ws.onmessage = (event: MessageEvent) => {
@@ -85,6 +93,14 @@ function handleMessage(data: any) {
   console.log("📩 Received:", data);
 
   switch (data.type) {
+    case "rejoined":
+      console.log("Rejoined room:", data.roomCode);
+      break;
+
+    case "playerList":
+      console.log("Player list updated:", data.players);
+      break;
+
     case "state":
       currentGameState = data.gameState;
       renderGameState(data.gameState, data.yourPlayerId);
@@ -92,6 +108,10 @@ function handleMessage(data: any) {
 
     case "cardDrawn":
       handleCardDrawn(data.cards, data.forced);
+      break;
+
+    case "cardEffect":
+      handleCardEffect(data.effect);
       break;
 
     case "error":
@@ -109,8 +129,12 @@ function renderGameState(state: GameState, playerId: string) {
 
   // Check for winner first
   if (state.winner) {
-    const winner = state.players.find((p) => p.id === state.winner);
-    showGameOver(winner!.name);
+    if (state.winner === "__admin__") {
+      showGameOver("Game ended by admin");
+    } else {
+      const winner = state.players.find((p) => p.id === state.winner);
+      showGameOver(winner ? winner.name : "Unknown player");
+    }
     return;
   }
 
@@ -154,6 +178,7 @@ function renderGameState(state: GameState, playerId: string) {
   // Enable/disable draw button based on turn
   const drawBtn = document.getElementById("drawBtn") as HTMLButtonElement;
   drawBtn.disabled = !isYourTurn;
+  drawBtn.textContent = state.pendingDraws > 0 ? `Draw +${state.pendingDraws}` : "Draw";
 }
 
 // Render opponents
@@ -165,26 +190,64 @@ function renderOpponents(
   const container = document.getElementById("opponentsList")!;
   container.innerHTML = "";
 
-  players
-    .filter((p) => p.id !== yourId)
-    .forEach((player) => {
-      const div = document.createElement("div");
-      div.className = "opponent-card";
-      if (player.id === currentPlayerId) {
-        div.classList.add("current-turn");
-      }
-      if (!player.connected) {
-        div.classList.add("disconnected");
-      }
+  const opponents = players.filter((p) => p.id !== yourId);
+  if (opponents.length === 0) return;
 
-      div.innerHTML = `
-        <div class="opponent-avatar">${player.avatar}</div>
-        <div class="opponent-name">${player.name}</div>
-        <div class="opponent-card-count">${player.cardCount} card${player.cardCount !== 1 ? "s" : ""}</div>
-      `;
+  // Calculate semicircular arc positions (160deg to 20deg, left to right)
+  const startAngle = 160; // deg
+  const endAngle = 20; // deg
+  const totalArc = startAngle - endAngle; // 140 degrees
 
-      container.appendChild(div);
-    });
+  opponents.forEach((player, index) => {
+    const div = document.createElement("div");
+    div.className = "opponent-node";
+    if (player.id === currentPlayerId) {
+      div.classList.add("current-turn");
+    }
+    if (!player.connected) {
+      div.classList.add("disconnected");
+    }
+
+    // Calculate angle for this opponent
+    let angle: number;
+    if (opponents.length === 1) {
+      angle = 90; // Center top
+    } else {
+      const step = totalArc / (opponents.length - 1);
+      angle = startAngle - (step * index);
+    }
+
+    // Convert angle to position on semicircle
+    const angleRad = (angle * Math.PI) / 180;
+    const radius = 40; // percentage of container width/height
+    const centerX = 50; // center of screen
+    const centerY = 45; // slightly above vertical center
+
+    const x = centerX + radius * Math.cos(angleRad);
+    const y = centerY - radius * Math.sin(angleRad);
+
+    // Position the opponent node
+    div.style.left = `${x}%`;
+    div.style.top = `${y}%`;
+    div.style.transform = "translate(-50%, -50%)";
+
+    const avatarCircle = document.createElement("div");
+    avatarCircle.className = "opponent-avatar-circle";
+    avatarCircle.textContent = player.avatar;
+    div.appendChild(avatarCircle);
+
+    const nameDiv = document.createElement("div");
+    nameDiv.className = "opponent-name";
+    nameDiv.textContent = player.name;
+    div.appendChild(nameDiv);
+
+    const countDiv = document.createElement("div");
+    countDiv.className = "opponent-card-count";
+    countDiv.textContent = `${player.cardCount} card${player.cardCount !== 1 ? "s" : ""}`;
+    div.appendChild(countDiv);
+
+    container.appendChild(div);
+  });
 }
 
 // Render your hand
@@ -199,19 +262,49 @@ function renderHand(
 
   if (hand.length === 0) {
     container.innerHTML = '<p class="empty-hand">No cards</p>';
+    return;
   }
+
+  const count = hand.length;
+  const cardSpacing = Math.min(48, 280 / count);
+  const maxRotation = 40; // degrees
 
   hand.forEach((card, index) => {
     const cardEl = createCardElement(card);
     cardEl.dataset.index = index.toString();
 
-    // Highlight playable cards
-    if (isYourTurn && canPlayCardClient(card, topCard, state)) {
+    // Determine if card is playable
+    const isPlayable = isYourTurn && canPlayCardClient(card, topCard, state);
+
+    if (isPlayable) {
       cardEl.classList.add("playable");
       cardEl.onclick = () => handleCardClick(index, card);
     } else {
       cardEl.classList.add("unplayable");
     }
+
+    // Calculate fan layout positioning
+    const normalizedIndex = count === 1 ? 0 : (index / (count - 1)) - 0.5; // -0.5 to 0.5
+    const rotation = normalizedIndex * maxRotation;
+
+    // Arc effect: edges lower than center
+    const arcDepth = 20; // pixels
+    const yOffset = Math.abs(normalizedIndex) * 2 * arcDepth;
+
+    // Playable cards get lifted 8px higher
+    const playableLift = isPlayable ? 8 : 0;
+
+    // Position from left
+    const leftPosition = (count - 1) * cardSpacing / 2 - index * cardSpacing;
+
+    // Z-index increases left to right
+    const zIndex = index;
+
+    // Apply styles
+    cardEl.style.left = `calc(50% - ${leftPosition}px)`;
+    cardEl.style.bottom = `${10 + playableLift - yOffset}px`;
+    cardEl.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
+    cardEl.style.zIndex = zIndex.toString();
 
     container.appendChild(cardEl);
   });
@@ -292,8 +385,8 @@ function renderTopCard(card: Card, lastColor: string | null) {
 
 // Handle card click
 function handleCardClick(index: number, card: Card) {
-  if (card.type === "wild") {
-    // Show color picker
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
+    // Show color picker for cards that require color selection
     pendingWildCardIndex = index;
     showColorPicker();
   } else {
@@ -305,6 +398,15 @@ function handleCardClick(index: number, card: Card) {
 // Play a card
 function playCard(index: number, chosenColor?: string) {
   if (!ws) return;
+
+  // Light haptic feedback on card play
+  try {
+    if (navigator.vibrate) {
+      navigator.vibrate(50);
+    } else {
+      haptic();
+    }
+  } catch {}
 
   ws.send(
     JSON.stringify({
@@ -326,9 +428,29 @@ function drawCards() {
   );
 }
 
+// Trigger haptic feedback for forced draws
+function triggerDrawHaptic(cardCount: number) {
+  try {
+    if (cardCount <= 2) {
+      haptic(); // Single pulse for +2
+    } else if (cardCount <= 4) {
+      haptic.confirm(); // Two rapid pulses for +4
+    } else {
+      haptic.error(); // Three rapid pulses for +20 or stacked combos
+    }
+  } catch {
+    // Silently ignore on unsupported platforms
+  }
+}
+
 // Handle card drawn
 function handleCardDrawn(cards: Card[], forced: boolean) {
   console.log(`Drew ${cards.length} card(s)`, forced ? "(forced)" : "");
+
+  // Trigger haptic feedback for forced draws
+  if (forced && cards.length > 1) {
+    triggerDrawHaptic(cards.length);
+  }
 
   // Show toast
   const message = forced
@@ -336,6 +458,18 @@ function handleCardDrawn(cards: Card[], forced: boolean) {
     : `Drew ${cards.length} card${cards.length !== 1 ? "s" : ""}`;
 
   showToast(message);
+}
+
+// Handle card effects (skip/reverse)
+function handleCardEffect(effect: string) {
+  try {
+    if (effect === "skipped") {
+      haptic(); // Single pulse — you got skipped
+      showToast("You were skipped!");
+    } else if (effect === "reversed") {
+      navigator.vibrate?.(30) || haptic(); // Light buzz — direction changed
+    }
+  } catch {}
 }
 
 // Client-side validation (matches server logic)
@@ -363,9 +497,9 @@ function canPlayCardClient(card: Card, topCard: Card, state: GameState): boolean
 
   // Get target color
   const targetColor =
-    topCard.type === "wild" && state.lastPlayedColor
+    topCard.type === "wild"
       ? state.lastPlayedColor
-      : topCard.color;
+      : topCard.color || state.lastPlayedColor; // +4/+20 don't have color property; use the color chosen when played
 
   // Match color
   if (card.color === targetColor) return true;
