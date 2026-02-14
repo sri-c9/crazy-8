@@ -2,20 +2,27 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Insane Crazy 8 - Lobby</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div class="container">
-    <h1>🎮 Insane Crazy 8</h1>
+    <!-- Header with styled logo -->
+    <div class="lobby-header">
+      <div class="logo-badge">8</div>
+      <h1 class="lobby-title">Insane Crazy 8</h1>
+      <p class="lobby-subtitle">Play with friends</p>
+    </div>
 
-    <div class="status" id="status">
-      <span id="connectionStatus">⚪ Connecting...</span>
+    <!-- Connection status pill (absolute positioned) -->
+    <div class="connection-pill" id="connectionPill">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="connectionStatus">Connecting</span>
     </div>
 
     <!-- Player Setup -->
-    <div class="section" id="setupSection">
+    <div class="section section-visible" id="setupSection">
       <h2>Player Setup</h2>
 
       <div class="form-group">
@@ -24,7 +31,7 @@
       </div>
 
       <div class="form-group">
-        <label>Choose Avatar:</label>
+        <label>Choose Avatar</label>
         <div class="avatar-grid" id="avatarGrid">
           <button class="avatar-btn" data-avatar="😎">😎</button>
           <button class="avatar-btn" data-avatar="🔥">🔥</button>
@@ -39,36 +46,47 @@
           <button class="avatar-btn" data-avatar="🎪">🎪</button>
           <button class="avatar-btn" data-avatar="🎲">🎲</button>
         </div>
-        <div class="selected-avatar">Selected: <span id="selectedAvatar">😎</span></div>
       </div>
 
       <div class="actions">
         <button class="btn btn-primary" id="createBtn">Create Room</button>
-        <div class="divider">OR</div>
-        <input type="text" id="joinCode" placeholder="Room Code (e.g., ABXY)" maxlength="4" style="text-transform: uppercase;" />
+        <div class="divider"><span>OR</span></div>
+        <input type="text" id="joinCode" placeholder="ABXY" maxlength="4" class="room-code-input" />
         <button class="btn btn-secondary" id="joinBtn">Join Room</button>
       </div>
     </div>
 
     <!-- Room Display -->
     <div class="section hidden" id="roomSection">
-      <h2>Room: <span id="roomCode"></span></h2>
-
       <div class="room-info">
-        <p>Share this code with friends:</p>
-        <div class="code-display" id="codeDisplay"></div>
+        <p class="room-info-label">Share this code</p>
+        <div class="code-card">
+          <div class="status-dot live"></div>
+          <div class="code-display" id="codeDisplay"></div>
+          <button class="copy-btn" id="copyCodeBtn" aria-label="Copy code">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <rect x="7" y="7" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M4 13H3C2.44772 13 2 12.5523 2 12V4C2 3.44772 2.44772 3 3 3H11C11.5523 3 12 3.44772 12 4V5" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
-      <h3>Players (<span id="playerCount">0</span>/6)</h3>
-      <div class="player-list" id="playerList"></div>
+      <div class="players-section">
+        <h3>Players (<span id="playerCount">0</span>/6)</h3>
+        <div class="player-list-grouped" id="playerList"></div>
+      </div>
 
       <!-- Start Game Button (host only, min 3 players) -->
       <button class="btn btn-primary hidden" id="startGameBtn">Start Game</button>
       <p id="waitingMessage" class="hidden">Waiting for host to start...</p>
     </div>
 
-    <!-- Error Display -->
-    <div class="error hidden" id="errorDisplay"></div>
+  </div>
+
+  <!-- Toast notification (fixed bottom) -->
+  <div class="toast hidden" id="toast">
+    <span id="toastMessage"></span>
   </div>
 
   <script>
@@ -91,19 +109,20 @@
 
     // DOM elements
     const statusEl = document.getElementById("connectionStatus");
+    const statusDot = document.getElementById("statusDot");
     const setupSection = document.getElementById("setupSection");
     const roomSection = document.getElementById("roomSection");
     const playerNameInput = document.getElementById("playerName");
     const joinCodeInput = document.getElementById("joinCode");
     const createBtn = document.getElementById("createBtn");
     const joinBtn = document.getElementById("joinBtn");
-    const roomCodeEl = document.getElementById("roomCode");
     const codeDisplayEl = document.getElementById("codeDisplay");
     const playerListEl = document.getElementById("playerList");
     const playerCountEl = document.getElementById("playerCount");
-    const errorDisplayEl = document.getElementById("errorDisplay");
+    const toastEl = document.getElementById("toast");
+    const toastMessageEl = document.getElementById("toastMessage");
     const avatarBtns = document.querySelectorAll(".avatar-btn");
-    const selectedAvatarEl = document.getElementById("selectedAvatar");
+    const copyCodeBtn = document.getElementById("copyCodeBtn");
 
     // Initialize WebSocket
     function connectWebSocket() {
@@ -112,10 +131,10 @@
       ws = new WebSocket(`${protocol}//${host}/ws`);
 
       ws.onopen = () => {
-        console.log("WebSocket connected");
+        console.log("✅ WebSocket connected");
         reconnectAttempts = 0;
         statusEl.textContent = "Connected";
-        statusEl.style.color = "#4caf50";
+        statusDot.className = "status-dot connected";
       };
 
       ws.onmessage = (event) => {
@@ -125,22 +144,22 @@
       };
 
       ws.onerror = (error) => {
-        console.error("WebSocket error:", error);
+        console.error("❌ WebSocket error:", error);
         statusEl.textContent = "Connection Error";
-        statusEl.style.color = "#f44336";
+        statusDot.className = "status-dot error";
       };
 
       ws.onclose = () => {
-        console.log("WebSocket closed");
+        console.log("🔌 WebSocket closed");
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 15000);
           reconnectAttempts++;
           statusEl.textContent = `Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`;
-          statusEl.style.color = "#ff9800";
+          statusDot.className = "status-dot connecting";
           setTimeout(() => connectWebSocket(), delay);
         } else {
           statusEl.textContent = "Connection lost. Refresh to try again.";
-          statusEl.style.color = "#f44336";
+          statusDot.className = "status-dot error";
         }
       };
     }
@@ -185,7 +204,6 @@
         avatarBtns.forEach(b => b.classList.remove("selected"));
         btn.classList.add("selected");
         selectedAvatar = btn.dataset.avatar;
-        selectedAvatarEl.textContent = selectedAvatar;
       });
     });
 
@@ -227,29 +245,41 @@
       });
     });
 
-    // Show room section
+    // Show room section with transition
     function showRoom(roomCode) {
-      setupSection.classList.add("hidden");
-      roomSection.classList.remove("hidden");
-      roomCodeEl.textContent = roomCode;
+      // Hide setup section with transition
+      setupSection.classList.add("section-exiting");
+      setTimeout(() => {
+        setupSection.classList.add("hidden");
+        setupSection.classList.remove("section-exiting");
+      }, 300);
+
+      // Show room section with transition
       codeDisplayEl.textContent = roomCode;
+      roomSection.classList.remove("hidden");
+      setTimeout(() => {
+        roomSection.classList.add("section-visible");
+      }, 10);
     }
 
-    // Update player list
+    // Update player list (grouped-table style)
     function updatePlayerList(players) {
       playerListEl.innerHTML = "";
       playerCountEl.textContent = players.length;
 
-      players.forEach(player => {
-        const playerDiv = document.createElement("div");
-        playerDiv.className = "player-card" + (player.connected ? "" : " disconnected");
-        playerDiv.innerHTML = `
+      players.forEach((player, index) => {
+        const playerRow = document.createElement("div");
+        playerRow.className = "player-row" + (player.connected ? "" : " disconnected");
+        playerRow.innerHTML = `
           <span class="player-avatar">${player.avatar}</span>
-          <span class="player-name">${player.name}</span>
-          ${player.isHost ? '<span class="host-badge">👑 Host</span>' : ''}
-          ${!player.connected ? '<span class="status-badge">⚠️ Disconnected</span>' : ''}
+          <div class="player-info">
+            <span class="player-name">${player.name}</span>
+            ${!player.connected ? '<span class="status-text">Disconnected</span>' : ''}
+          </div>
+          ${player.isHost ? '<span class="host-badge">Host</span>' : ''}
         `;
-        playerListEl.appendChild(playerDiv);
+        playerRow.style.animationDelay = `${index * 50}ms`;
+        playerListEl.appendChild(playerRow);
       });
 
       // Show/hide start game button
@@ -270,14 +300,34 @@
       }
     }
 
-    // Show error
-    function showError(message) {
-      errorDisplayEl.textContent = "❌ " + message;
-      errorDisplayEl.classList.remove("hidden");
+    // Show toast notification
+    function showToast(message) {
+      toastMessageEl.textContent = message;
+      toastEl.classList.remove("hidden");
+      toastEl.classList.add("toast-visible");
+
       setTimeout(() => {
-        errorDisplayEl.classList.add("hidden");
+        toastEl.classList.remove("toast-visible");
+        setTimeout(() => {
+          toastEl.classList.add("hidden");
+        }, 300);
       }, 3000);
     }
+
+    // Backward compatibility alias
+    const showError = showToast;
+
+    // Copy room code to clipboard
+    copyCodeBtn.addEventListener("click", async () => {
+      const code = codeDisplayEl.textContent;
+      try {
+        await navigator.clipboard.writeText(code);
+        showToast("Code copied!");
+      } catch (err) {
+        console.error("Failed to copy:", err);
+        showToast("Copy failed");
+      }
+    });
 
     // Start game button
     document.getElementById("startGameBtn").addEventListener("click", () => {
