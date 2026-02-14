@@ -679,27 +679,12 @@ input[type="text"]:focus {
 .card.playable {
   border: 4px solid #ffd700;
   box-shadow: 0 10px 25px rgba(255, 215, 0, 0.5);
-  animation: card-pulse 1.5s infinite;
-}
-
-.card.playable:hover {
-  transform: translateY(-16px) scale(1.05);
-  box-shadow: 0 15px 35px rgba(255, 215, 0, 0.7);
 }
 
 .hand-fan .card.playable:hover {
   z-index: 100;
   transform: scale(1.1);
   box-shadow: 0 15px 40px rgba(255, 215, 0, 0.8);
-}
-
-@keyframes card-pulse {
-  0%, 100% {
-    box-shadow: 0 10px 25px rgba(255, 215, 0, 0.5);
-  }
-  50% {
-    box-shadow: 0 10px 35px rgba(255, 215, 0, 0.8);
-  }
 }
 
 .card.unplayable {
