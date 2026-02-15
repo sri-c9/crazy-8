@@ -28,6 +28,11 @@ export interface Plus20Card {
   type: "plus20";
 }
 
+export interface Plus20ColorCard {
+  type: "plus20color";
+  color: CardColor;
+}
+
 export interface SkipCard {
   type: "skip";
   color: CardColor;
@@ -38,14 +43,21 @@ export interface ReverseCard {
   color: CardColor;
 }
 
+export interface SwapCard {
+  type: "swap";
+  color: CardColor;
+}
+
 export type Card =
   | NumberCard
   | WildCard
   | Plus2Card
   | Plus4Card
   | Plus20Card
+  | Plus20ColorCard
   | SkipCard
-  | ReverseCard;
+  | ReverseCard
+  | SwapCard;
 
 const COLORS: CardColor[] = ["red", "blue", "green", "yellow"];
 const NUMBER_VALUES: number[] = [0, 1, 2, 3, 4, 5, 6, 7, 9];
@@ -64,8 +76,8 @@ function randomNumberValue(): number {
 export function generateCard(): Card {
   const rand = Math.random();
 
-  // 60% number cards (0-7, 9)
-  if (rand < 0.6) {
+  // 57% number cards (0-7, 9)
+  if (rand < 0.57) {
     return {
       type: "number",
       color: randomColor(),
@@ -73,38 +85,52 @@ export function generateCard(): Card {
     };
   }
   // 10% wild (8)
-  else if (rand < 0.7) {
+  else if (rand < 0.67) {
     return {
       type: "wild",
       chosenColor: null,
     };
   }
-  // 15% +2
-  else if (rand < 0.85) {
+  // 14% +2
+  else if (rand < 0.81) {
     return {
       type: "plus2",
       color: randomColor(),
     };
   }
   // 5% +4
-  else if (rand < 0.9) {
+  else if (rand < 0.86) {
     return { type: "plus4" };
   }
-  // 2% +20
-  else if (rand < 0.92) {
+  // 2% +20 (wild)
+  else if (rand < 0.88) {
     return { type: "plus20" };
   }
+  // 1% +20 (colored)
+  else if (rand < 0.89) {
+    return {
+      type: "plus20color",
+      color: randomColor(),
+    };
+  }
   // 4% skip
-  else if (rand < 0.96) {
+  else if (rand < 0.93) {
     return {
       type: "skip",
       color: randomColor(),
     };
   }
   // 4% reverse
-  else {
+  else if (rand < 0.97) {
     return {
       type: "reverse",
+      color: randomColor(),
+    };
+  }
+  // 3% swap
+  else {
+    return {
+      type: "swap",
       color: randomColor(),
     };
   }
@@ -118,19 +144,11 @@ export function canPlayCard(
 ): boolean {
   // Phase 3: If pendingDraws > 0, only +cards can be played
   if (room.pendingDraws > 0) {
-    return card.type === "plus2" || card.type === "plus4" || card.type === "plus20";
+    return card.type === "plus2" || card.type === "plus4" || card.type === "plus20" || card.type === "plus20color";
   }
 
   // Wild cards always playable
   if (card.type === "wild") {
-    return true;
-  }
-
-  // Phase 3: +cards can stack on any +card (ignore color)
-  if (
-    (card.type === "plus2" || card.type === "plus4" || card.type === "plus20") &&
-    (topCard.type === "plus2" || topCard.type === "plus4" || topCard.type === "plus20")
-  ) {
     return true;
   }
 
@@ -175,14 +193,16 @@ export function startGame(room: Room): void {
     }
   }
 
-  // Generate initial discard pile card (can't be plus card to avoid starting with penalty)
+  // Generate initial discard pile card (can't be plus/skip/reverse to avoid starting with effects)
   let initialCard: Card;
   do {
     initialCard = generateCard();
   } while (
     initialCard.type === "plus2" ||
     initialCard.type === "plus4" ||
-    initialCard.type === "plus20"
+    initialCard.type === "plus20" ||
+    initialCard.type === "skip" ||
+    initialCard.type === "reverse"
   );
 
   // Initialize game state
@@ -271,16 +291,8 @@ export function playCard(
     room.pendingDraws += 4;
   } else if (card.type === "plus20") {
     room.pendingDraws += 20;
-  }
-
-  // Skip: advance by 3 instead of 1 (skips next 2 players)
-  if (card.type === "skip") {
-    const playerArray = Array.from(room.players.keys());
-    const count = playerArray.length;
-    room.currentPlayerIndex =
-      (room.currentPlayerIndex + 3 * room.direction + count) % count;
-    // Don't call advanceTurn() - already advanced
-    return;
+  } else if (card.type === "plus20color") {
+    room.pendingDraws += 20;
   }
 
   // Reverse: flip direction, increment counter
@@ -292,9 +304,26 @@ export function playCard(
     room.reverseStackCount = 0;
   }
 
-  // Wild card: set chosen color
-  if (card.type === "wild" && chosenColor) {
-    room.lastPlayedColor = chosenColor;
+  // Swap: exchange hands with next player
+  if (card.type === "swap") {
+    const playerArray = Array.from(room.players.keys());
+    const count = playerArray.length;
+    const nextPlayerIndex = (room.currentPlayerIndex + room.direction + count) % count;
+    const nextPlayerId = playerArray[nextPlayerIndex];
+    const nextPlayer = room.players.get(nextPlayerId);
+
+    if (nextPlayer) {
+      // Swap the hands
+      const tempHand = player.hand;
+      player.hand = nextPlayer.hand;
+      nextPlayer.hand = tempHand;
+    }
+  }
+
+  // Update lastPlayedColor for all card types
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
+    // Wild-type cards: use chosenColor, fall back to random (defense-in-depth)
+    room.lastPlayedColor = chosenColor || randomColor();
   } else if ("color" in card) {
     room.lastPlayedColor = card.color;
   }
@@ -305,8 +334,15 @@ export function playCard(
     return; // Don't advance turn if game over
   }
 
-  // Advance turn
-  advanceTurn(room);
+  // Advance turn: skip cards advance by 3, others advance by 1
+  if (card.type === "skip") {
+    const playerArray = Array.from(room.players.keys());
+    const count = playerArray.length;
+    room.currentPlayerIndex =
+      (room.currentPlayerIndex + 3 * room.direction + count) % count;
+  } else {
+    advanceTurn(room);
+  }
 }
 
 // Draw card(s)

@@ -756,8 +756,7 @@ input[type="text"]:focus {
 
 .hand-fan .card.playable:hover {
   z-index: 100;
-  transform: scale(1.1);
-  box-shadow: 0 15px 40px rgba(255, 215, 0, 0.8);
+  filter: brightness(1.15) drop-shadow(0 0 8px rgba(255, 215, 0, 0.8));
 }
 
 .card.unplayable {
@@ -832,6 +831,37 @@ input[type="text"]:focus {
   position: absolute;
   bottom: 10px;
   transform-origin: bottom center;
+}
+
+/* Scroll layout for large hands (>12 cards) */
+.hand-fan.scroll-layout {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  justify-content: flex-start;
+  align-items: center;
+  height: auto;
+  min-height: 130px;
+  padding: 10px 15px;
+  gap: 0;
+}
+
+.hand-fan.scroll-layout .card {
+  position: relative;
+  flex-shrink: 0;
+  margin-right: -25px;
+  bottom: auto;
+  transform: none;
+  left: auto;
+}
+
+.hand-fan.scroll-layout .card:last-child {
+  margin-right: 0;
+}
+
+.hand-fan.scroll-layout .card.playable {
+  margin-top: -8px;
 }
 
 .empty-hand {

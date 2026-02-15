@@ -126,6 +126,10 @@ function leaveRoom(roomCode: string, playerId: string): void {
     throw new Error("Room not found");
   }
 
+  // Find the leaving player's index before deletion (for currentPlayerIndex adjustment)
+  const playerKeys = Array.from(room.players.keys());
+  const removedIndex = playerKeys.indexOf(playerId);
+
   room.players.delete(playerId);
 
   // If room is empty, delete it
@@ -136,9 +140,26 @@ function leaveRoom(roomCode: string, playerId: string): void {
 
   // Transfer host if the leaving player was the host
   if (room.hostId === playerId) {
-    // Make the first remaining player the new host
     const firstPlayer = Array.from(room.players.keys())[0];
     room.hostId = firstPlayer;
+  }
+
+  // Adjust currentPlayerIndex if game is in progress
+  if (room.status === GameStatus.playing && removedIndex !== -1) {
+    // If only 1 player remains, end the game — they win
+    if (room.players.size === 1) {
+      room.status = GameStatus.finished;
+      return;
+    }
+
+    if (removedIndex < room.currentPlayerIndex) {
+      // Player before current was removed, shift index back
+      room.currentPlayerIndex--;
+    } else if (removedIndex === room.currentPlayerIndex) {
+      // Current player was removed, wrap index to stay in bounds
+      room.currentPlayerIndex = room.currentPlayerIndex % room.players.size;
+    }
+    // If removedIndex > currentPlayerIndex, no adjustment needed
   }
 }
 
