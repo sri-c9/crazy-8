@@ -190,7 +190,15 @@
           break;
 
         case "error":
-          showError(data.message);
+          showToast(data.message);
+
+          // Re-enable Start Game button if it was clicked
+          const startBtn = document.getElementById("startGameBtn");
+          if (startBtn && startBtn.disabled) {
+            startBtn.disabled = false;
+            startBtn.textContent = "Start Game";
+            startBtn.style.opacity = "1";
+          }
           break;
 
         default:
@@ -331,10 +339,20 @@
 
     // Start game button
     document.getElementById("startGameBtn").addEventListener("click", () => {
+      const startBtn = document.getElementById("startGameBtn");
+
       if (!ws || !currentRoomCode) {
-        showError("Not connected to a room");
+        showToast("Not connected to a room");
         return;
       }
+
+      // Prevent multiple clicks
+      if (startBtn.disabled) return;
+
+      // Disable button and show loading state
+      startBtn.disabled = true;
+      startBtn.textContent = "Starting...";
+      startBtn.style.opacity = "0.6";
 
       safeSend({
         action: "startGame"
