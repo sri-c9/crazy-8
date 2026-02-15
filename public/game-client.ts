@@ -36,6 +36,7 @@ let pendingWildCardIndex: number | null = null;
 let currentGameState: GameState | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
+let gameOver = false;
 
 // Safe WebSocket send helper
 function safeSend(data: any) {
@@ -85,8 +86,13 @@ function connectWebSocket() {
   };
 
   ws.onmessage = (event: MessageEvent) => {
-    const data = JSON.parse(event.data);
-    handleMessage(data);
+    try {
+      const data = JSON.parse(event.data);
+      handleMessage(data);
+    } catch (error) {
+      console.error("Failed to parse message:", error);
+      showError("Received invalid data from server");
+    }
   };
 
   ws.onerror = (err) => {
@@ -129,6 +135,10 @@ function handleMessage(data: any) {
       handleCardDrawn(data.cards, data.forced);
       break;
 
+    case "gameStarted":
+      console.log("Game started!");
+      break;
+
     case "cardEffect":
       handleCardEffect(data.effect, data.targetPlayerId);
       break;
@@ -163,8 +173,8 @@ function renderGameState(state: GameState, playerId: string) {
     renderHand(yourPlayer.hand, state.topCard, state, isYourTurn);
   }
 
-  // Update pending draws alert
-  if (state.pendingDraws > 0) {
+  // Update pending draws alert (only show for current player)
+  if (state.pendingDraws > 0 && isYourTurn) {
     document.getElementById("pendingAlert")!.classList.remove("hidden");
     document.getElementById("pendingCount")!.textContent = `+${state.pendingDraws}`;
   } else {
@@ -470,6 +480,8 @@ function renderTopCard(card: Card, lastColor: string | null) {
 
 // Handle card click
 function handleCardClick(index: number, card: Card) {
+  if (gameOver) return; // Don't allow interactions after game over
+
   if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
     // Show color picker for cards that require color selection
     pendingWildCardIndex = index;
@@ -503,6 +515,7 @@ function playCard(index: number, chosenColor?: string) {
 // Draw card
 function drawCards() {
   if (!ws) return;
+  if (gameOver) return; // Don't allow interactions after game over
 
   safeSend({
     action: "draw",
@@ -566,8 +579,8 @@ function canPlayCardClient(card: Card, topCard: Card, state: GameState): boolean
     return card.type === "plus2" || card.type === "plus4" || card.type === "plus20" || card.type === "plus20color";
   }
 
-  // Wild cards always playable
-  if (card.type === "wild") return true;
+  // Wild-type cards always playable (wild, plus4, plus20 have no color restrictions)
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") return true;
 
   // Reverse limit
   if (card.type === "reverse" && state.reverseStackCount >= 4) {
@@ -604,6 +617,7 @@ function hideColorPicker() {
 
 // Show game over
 function showGameOver(winnerName: string) {
+  gameOver = true; // Lock the game board
   document.getElementById("winnerName")!.textContent = winnerName;
   document.getElementById("gameOver")!.classList.remove("hidden");
 }

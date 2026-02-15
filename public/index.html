@@ -275,17 +275,46 @@
       playerListEl.innerHTML = "";
       playerCountEl.textContent = players.length;
 
+      // Update isHost if current player is now the host
+      const currentPlayer = players.find(p => p.id === currentPlayerId);
+      if (currentPlayer) {
+        isHost = currentPlayer.isHost;
+      }
+
       players.forEach((player, index) => {
         const playerRow = document.createElement("div");
         playerRow.className = "player-row" + (player.connected ? "" : " disconnected");
-        playerRow.innerHTML = `
-          <span class="player-avatar">${player.avatar}</span>
-          <div class="player-info">
-            <span class="player-name">${player.name}</span>
-            ${!player.connected ? '<span class="status-text">Disconnected</span>' : ''}
-          </div>
-          ${player.isHost ? '<span class="host-badge">Host</span>' : ''}
-        `;
+
+        // Create elements programmatically to prevent XSS
+        const avatarSpan = document.createElement("span");
+        avatarSpan.className = "player-avatar";
+        avatarSpan.textContent = player.avatar;
+
+        const playerInfo = document.createElement("div");
+        playerInfo.className = "player-info";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "player-name";
+        nameSpan.textContent = player.name;
+        playerInfo.appendChild(nameSpan);
+
+        if (!player.connected) {
+          const statusSpan = document.createElement("span");
+          statusSpan.className = "status-text";
+          statusSpan.textContent = "Disconnected";
+          playerInfo.appendChild(statusSpan);
+        }
+
+        playerRow.appendChild(avatarSpan);
+        playerRow.appendChild(playerInfo);
+
+        if (player.isHost) {
+          const hostBadge = document.createElement("span");
+          hostBadge.className = "host-badge";
+          hostBadge.textContent = "Host";
+          playerRow.appendChild(hostBadge);
+        }
+
         playerRow.style.animationDelay = `${index * 50}ms`;
         playerListEl.appendChild(playerRow);
       });

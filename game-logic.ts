@@ -1,5 +1,5 @@
 // Import types from room-manager
-import type { Room, Player, GameStatus } from "./room-manager";
+import { GameStatus, type Room, type Player } from "./room-manager";
 
 // Define card types
 export type CardColor = "red" | "blue" | "green" | "yellow";
@@ -147,8 +147,8 @@ export function canPlayCard(
     return card.type === "plus2" || card.type === "plus4" || card.type === "plus20" || card.type === "plus20color";
   }
 
-  // Wild cards always playable
-  if (card.type === "wild") {
+  // Wild-type cards always playable (wild, plus4, plus20 have no color restrictions)
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
     return true;
   }
 
@@ -163,7 +163,7 @@ export function canPlayCard(
       ? room.lastPlayedColor
       : "color" in topCard
         ? topCard.color
-        : null;
+        : room.lastPlayedColor;
 
   // Match color OR number
   if (card.type === "number" && topCard.type === "number") {
@@ -181,7 +181,7 @@ export function startGame(room: Room): void {
     throw new Error("Need at least 3 players to start");
   }
 
-  if (room.gameStatus !== "waiting") {
+  if (room.status !== GameStatus.waiting) {
     throw new Error("Game already started");
   }
 
@@ -193,7 +193,7 @@ export function startGame(room: Room): void {
     }
   }
 
-  // Generate initial discard pile card (can't be plus/skip/reverse to avoid starting with effects)
+  // Generate initial discard pile card (can't be plus/skip/reverse/swap to avoid starting with effects)
   let initialCard: Card;
   do {
     initialCard = generateCard();
@@ -201,8 +201,10 @@ export function startGame(room: Room): void {
     initialCard.type === "plus2" ||
     initialCard.type === "plus4" ||
     initialCard.type === "plus20" ||
+    initialCard.type === "plus20color" ||
     initialCard.type === "skip" ||
-    initialCard.type === "reverse"
+    initialCard.type === "reverse" ||
+    initialCard.type === "swap"
   );
 
   // Initialize game state
@@ -220,7 +222,7 @@ export function startGame(room: Room): void {
     room.lastPlayedColor = null;
   }
 
-  room.gameStatus = "playing";
+  room.status = GameStatus.playing;
 }
 
 // Get current player ID
@@ -330,7 +332,7 @@ export function playCard(
 
   // Check win condition
   if (player.hand.length === 0) {
-    room.gameStatus = "finished";
+    room.status = GameStatus.finished;
     return; // Don't advance turn if game over
   }
 
@@ -385,7 +387,7 @@ export function drawCard(room: Room, playerId: string): Card[] {
 export function checkWinCondition(room: Room): string | null {
   for (const [playerId, player] of room.players) {
     if (player.hand.length === 0) {
-      room.gameStatus = "finished";
+      room.status = GameStatus.finished;
       return playerId;
     }
   }

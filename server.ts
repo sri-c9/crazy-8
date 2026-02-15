@@ -3,10 +3,12 @@ import {
   createRoom,
   joinRoom,
   disconnectPlayer,
+  reconnectPlayer,
   getRoomPlayerList,
   leaveRoom,
   startGameInRoom,
   getRoom,
+  GameStatus,
 } from "./room-manager";
 import {
   playCard,
@@ -30,6 +32,7 @@ interface IncomingMessage {
   playerName?: string;
   avatar?: string;
   roomCode?: string;
+  playerId?: string;
   cardIndex?: number;
   chosenColor?: CardColor;
 }
@@ -48,6 +51,9 @@ function validateInt(value: unknown, fieldName: string): number {
   }
   return value;
 }
+
+// Connection map to track active WebSocket connections by playerId
+const playerConnections = new Map<string, ServerWebSocket<WebSocketData>>();
 
 const server = Bun.serve<WebSocketData>({
   port: 3000,
@@ -101,6 +107,9 @@ const server = Bun.serve<WebSocketData>({
           case "join":
             handleJoin(ws, msg);
             break;
+          case "rejoin":
+            handleRejoin(ws, msg);
+            break;
           case "startGame":
             handleStartGame(ws);
             break;
@@ -126,6 +135,7 @@ const server = Bun.serve<WebSocketData>({
       if (ws.data.roomCode && ws.data.playerId) {
         disconnectPlayer(ws.data.roomCode, ws.data.playerId);
         ws.unsubscribe(ws.data.roomCode);
+        playerConnections.delete(ws.data.playerId);
 
         server.publish(
           ws.data.roomCode,
@@ -155,6 +165,7 @@ const handleCreate = (
     ws.data.roomCode = roomCode;
 
     ws.subscribe(roomCode);
+    playerConnections.set(playerId, ws);
 
     ws.send(
       JSON.stringify({
@@ -186,7 +197,7 @@ const handleJoin = (
   msg: IncomingMessage,
 ) => {
   try {
-    const roomCode = validateString(msg.roomCode, "roomCode");
+    const roomCode = validateString(msg.roomCode, "roomCode").toUpperCase();
     const playerName = validateString(msg.playerName, "playerName");
     const avatar = validateString(msg.avatar, "avatar");
 
@@ -198,6 +209,7 @@ const handleJoin = (
     ws.data.roomCode = roomCode;
 
     ws.subscribe(roomCode);
+    playerConnections.set(playerId, ws);
 
     ws.send(
       JSON.stringify({
@@ -214,6 +226,72 @@ const handleJoin = (
         players: getRoomPlayerList(roomCode),
       }),
     );
+  } catch (error) {
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        message: (error as Error).message,
+      }),
+    );
+  }
+};
+
+const handleRejoin = (
+  ws: ServerWebSocket<WebSocketData>,
+  msg: IncomingMessage,
+) => {
+  try {
+    const roomCode = validateString(msg.roomCode, "roomCode").toUpperCase();
+    const playerId = validateString(msg.playerId, "playerId");
+
+    // Reconnect the player
+    reconnectPlayer(roomCode, playerId);
+
+    // Get the room to retrieve player info
+    const room = getRoom(roomCode);
+    if (!room) {
+      ws.send(JSON.stringify({ type: "error", message: "Room not found" }));
+      return;
+    }
+
+    const player = room.players.get(playerId);
+    if (!player) {
+      ws.send(JSON.stringify({ type: "error", message: "Player not found" }));
+      return;
+    }
+
+    // Update WebSocket data
+    ws.data.playerId = playerId;
+    ws.data.playerName = player.name;
+    ws.data.avatar = player.avatar;
+    ws.data.roomCode = roomCode;
+
+    // Subscribe to room
+    ws.subscribe(roomCode);
+    playerConnections.set(playerId, ws);
+
+    // Send rejoined confirmation
+    ws.send(
+      JSON.stringify({
+        type: "rejoined",
+        roomCode: roomCode,
+        playerId: playerId,
+      }),
+    );
+
+    // Broadcast updated player list
+    server.publish(
+      roomCode,
+      JSON.stringify({
+        type: "playerList",
+        players: getRoomPlayerList(roomCode),
+      }),
+    );
+
+    // If game is in progress, send game state
+    if (room.status === "playing") {
+      broadcastGameState(roomCode);
+    }
   } catch (error) {
     ws.send(
       JSON.stringify({
@@ -256,8 +334,11 @@ const broadcastGameState = (roomCode: string, winner?: string | null) => {
       yourPlayerId: playerId,
     };
 
-    // Publish to room (each connected player receives their personalized state)
-    server.publish(roomCode, JSON.stringify(personalizedState));
+    // Send directly to this player's connection (not broadcast)
+    const playerWs = playerConnections.get(playerId);
+    if (playerWs) {
+      playerWs.send(JSON.stringify(personalizedState));
+    }
   }
 };
 
@@ -315,26 +396,35 @@ const handlePlayCard = (
       return;
     }
 
+    // Check game status
+    if (room.status !== GameStatus.playing) {
+      ws.send(JSON.stringify({ type: "error", message: "Game is not in progress" }));
+      return;
+    }
+
     // Validate chosenColor for wild-type cards
     const player = room.players.get(playerId);
-    if (player) {
-      const card = player.hand[cardIndex];
-      if (card && (card.type === "wild" || card.type === "plus4" || card.type === "plus20")) {
-        if (!msg.chosenColor) {
-          ws.send(JSON.stringify({ type: "error", message: "Must choose a color for this card" }));
-          return;
-        }
-        const validColors: CardColor[] = ["red", "blue", "green", "yellow"];
-        if (!validColors.includes(msg.chosenColor)) {
-          ws.send(JSON.stringify({ type: "error", message: "Invalid color choice" }));
-          return;
-        }
+    if (!player) {
+      ws.send(JSON.stringify({ type: "error", message: "Player not found" }));
+      return;
+    }
+
+    const card = player.hand[cardIndex];
+    if (card && (card.type === "wild" || card.type === "plus4" || card.type === "plus20")) {
+      if (!msg.chosenColor) {
+        ws.send(JSON.stringify({ type: "error", message: "Must choose a color for this card" }));
+        return;
+      }
+      const validColors: CardColor[] = ["red", "blue", "green", "yellow"];
+      if (!validColors.includes(msg.chosenColor)) {
+        ws.send(JSON.stringify({ type: "error", message: "Invalid color choice" }));
+        return;
       }
     }
 
     // Get the card and next player info before playCard modifies state
-    const card = player.hand[cardIndex];
     let swapTargetId: string | null = null;
+    let skippedPlayerIds: string[] = [];
 
     if (card.type === "swap") {
       const playerArray = Array.from(room.players.keys());
@@ -343,32 +433,59 @@ const handlePlayCard = (
       swapTargetId = playerArray[nextPlayerIndex];
     }
 
+    if (card.type === "skip") {
+      // Skip advances by 3 (skips 2 players)
+      const playerArray = Array.from(room.players.keys());
+      const count = playerArray.length;
+      const skippedIndex1 = (room.currentPlayerIndex + room.direction + count) % count;
+      const skippedIndex2 = (room.currentPlayerIndex + 2 * room.direction + count) % count;
+      skippedPlayerIds = [playerArray[skippedIndex1], playerArray[skippedIndex2]];
+    }
+
     playCard(room, playerId, cardIndex, msg.chosenColor);
+
+    // Send skip effect notifications
+    if (skippedPlayerIds.length > 0) {
+      skippedPlayerIds.forEach((skippedId) => {
+        const ws = playerConnections.get(skippedId);
+        if (ws) {
+          ws.send(JSON.stringify({ type: "cardEffect", effect: "skipped" }));
+        }
+      });
+    }
+
+    // Send reverse effect notification (broadcast to all)
+    if (card.type === "reverse") {
+      server.publish(
+        roomCode,
+        JSON.stringify({ type: "cardEffect", effect: "reversed" }),
+      );
+    }
 
     // Send swap effect notifications
     if (swapTargetId) {
       // Send to the player who played the swap
-      for (const [pid, p] of room.players) {
-        if (pid === playerId) {
-          server.publish(
-            roomCode,
-            JSON.stringify({
-              type: "cardEffect",
-              effect: "youSwapped",
-              targetPlayerId: pid,
-            }),
-          );
-        } else if (pid === swapTargetId) {
-          // Send to the player who was swapped with
-          server.publish(
-            roomCode,
-            JSON.stringify({
-              type: "cardEffect",
-              effect: "swapped",
-              targetPlayerId: pid,
-            }),
-          );
-        }
+      const playerWs = playerConnections.get(playerId);
+      if (playerWs) {
+        playerWs.send(
+          JSON.stringify({
+            type: "cardEffect",
+            effect: "youSwapped",
+            targetPlayerId: playerId,
+          }),
+        );
+      }
+
+      // Send to the player who was swapped with
+      const targetWs = playerConnections.get(swapTargetId);
+      if (targetWs) {
+        targetWs.send(
+          JSON.stringify({
+            type: "cardEffect",
+            effect: "swapped",
+            targetPlayerId: swapTargetId,
+          }),
+        );
       }
     }
 
@@ -400,6 +517,12 @@ const handleDrawCard = (ws: ServerWebSocket<WebSocketData>) => {
     const room = getRoom(roomCode);
     if (!room) {
       ws.send(JSON.stringify({ type: "error", message: "Room not found" }));
+      return;
+    }
+
+    // Check game status
+    if (room.status !== GameStatus.playing) {
+      ws.send(JSON.stringify({ type: "error", message: "Game is not in progress" }));
       return;
     }
 
