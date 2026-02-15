@@ -34,6 +34,21 @@ interface IncomingMessage {
   chosenColor?: CardColor;
 }
 
+// Validation helpers
+function validateString(value: unknown, fieldName: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${fieldName} is required and must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function validateInt(value: unknown, fieldName: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${fieldName} must be a non-negative integer`);
+  }
+  return value;
+}
+
 const server = Bun.serve<WebSocketData>({
   port: 3000,
 
@@ -128,30 +143,42 @@ const handleCreate = (
   ws: ServerWebSocket<WebSocketData>,
   msg: IncomingMessage,
 ) => {
-  const { roomCode, playerId } = createRoom(msg.playerName!, msg.avatar!);
+  try {
+    const playerName = validateString(msg.playerName, "playerName");
+    const avatar = validateString(msg.avatar, "avatar");
 
-  ws.data.playerId = playerId;
-  ws.data.playerName = msg.playerName!;
-  ws.data.avatar = msg.avatar!;
-  ws.data.roomCode = roomCode;
+    const { roomCode, playerId } = createRoom(playerName, avatar);
 
-  ws.subscribe(roomCode);
+    ws.data.playerId = playerId;
+    ws.data.playerName = playerName;
+    ws.data.avatar = avatar;
+    ws.data.roomCode = roomCode;
 
-  ws.send(
-    JSON.stringify({
-      type: "roomCreated",
+    ws.subscribe(roomCode);
+
+    ws.send(
+      JSON.stringify({
+        type: "roomCreated",
+        roomCode,
+        playerId,
+      }),
+    );
+
+    server.publish(
       roomCode,
-      playerId,
-    }),
-  );
-
-  server.publish(
-    roomCode,
-    JSON.stringify({
-      type: "playerList",
-      players: getRoomPlayerList(roomCode),
-    }),
-  );
+      JSON.stringify({
+        type: "playerList",
+        players: getRoomPlayerList(roomCode),
+      }),
+    );
+  } catch (error) {
+    ws.send(
+      JSON.stringify({
+        type: "error",
+        message: (error as Error).message,
+      }),
+    );
+  }
 };
 
 const handleJoin = (
@@ -159,28 +186,32 @@ const handleJoin = (
   msg: IncomingMessage,
 ) => {
   try {
-    const { playerId } = joinRoom(msg.roomCode!, msg.playerName!, msg.avatar!);
+    const roomCode = validateString(msg.roomCode, "roomCode");
+    const playerName = validateString(msg.playerName, "playerName");
+    const avatar = validateString(msg.avatar, "avatar");
+
+    const { playerId } = joinRoom(roomCode, playerName, avatar);
 
     ws.data.playerId = playerId;
-    ws.data.playerName = msg.playerName!;
-    ws.data.avatar = msg.avatar!;
-    ws.data.roomCode = msg.roomCode!;
+    ws.data.playerName = playerName;
+    ws.data.avatar = avatar;
+    ws.data.roomCode = roomCode;
 
-    ws.subscribe(msg.roomCode!);
+    ws.subscribe(roomCode);
 
     ws.send(
       JSON.stringify({
         type: "joined",
-        roomCode: msg.roomCode!,
+        roomCode: roomCode,
         playerId: playerId,
       }),
     );
 
     server.publish(
-      msg.roomCode!,
+      roomCode,
       JSON.stringify({
         type: "playerList",
-        players: getRoomPlayerList(msg.roomCode!),
+        players: getRoomPlayerList(roomCode),
       }),
     );
   } catch (error) {
@@ -276,13 +307,70 @@ const handlePlayCard = (
   }
 
   try {
+    const cardIndex = validateInt(msg.cardIndex, "cardIndex");
+
     const room = getRoom(roomCode);
     if (!room) {
       ws.send(JSON.stringify({ type: "error", message: "Room not found" }));
       return;
     }
 
-    playCard(room, playerId, msg.cardIndex!, msg.chosenColor);
+    // Validate chosenColor for wild-type cards
+    const player = room.players.get(playerId);
+    if (player) {
+      const card = player.hand[cardIndex];
+      if (card && (card.type === "wild" || card.type === "plus4" || card.type === "plus20")) {
+        if (!msg.chosenColor) {
+          ws.send(JSON.stringify({ type: "error", message: "Must choose a color for this card" }));
+          return;
+        }
+        const validColors: CardColor[] = ["red", "blue", "green", "yellow"];
+        if (!validColors.includes(msg.chosenColor)) {
+          ws.send(JSON.stringify({ type: "error", message: "Invalid color choice" }));
+          return;
+        }
+      }
+    }
+
+    // Get the card and next player info before playCard modifies state
+    const card = player.hand[cardIndex];
+    let swapTargetId: string | null = null;
+
+    if (card.type === "swap") {
+      const playerArray = Array.from(room.players.keys());
+      const count = playerArray.length;
+      const nextPlayerIndex = (room.currentPlayerIndex + room.direction + count) % count;
+      swapTargetId = playerArray[nextPlayerIndex];
+    }
+
+    playCard(room, playerId, cardIndex, msg.chosenColor);
+
+    // Send swap effect notifications
+    if (swapTargetId) {
+      // Send to the player who played the swap
+      for (const [pid, p] of room.players) {
+        if (pid === playerId) {
+          server.publish(
+            roomCode,
+            JSON.stringify({
+              type: "cardEffect",
+              effect: "youSwapped",
+              targetPlayerId: pid,
+            }),
+          );
+        } else if (pid === swapTargetId) {
+          // Send to the player who was swapped with
+          server.publish(
+            roomCode,
+            JSON.stringify({
+              type: "cardEffect",
+              effect: "swapped",
+              targetPlayerId: pid,
+            }),
+          );
+        }
+      }
+    }
 
     // Check for winner
     const winner = checkWinCondition(room);

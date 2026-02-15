@@ -34,6 +34,17 @@ let yourPlayerId: string | null = null;
 let roomCode: string | null = null;
 let pendingWildCardIndex: number | null = null;
 let currentGameState: GameState | null = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+
+// Safe WebSocket send helper
+function safeSend(data: any) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+  } else {
+    console.warn("WebSocket not ready, cannot send:", data);
+  }
+}
 
 // Initialize
 function init() {
@@ -61,7 +72,8 @@ function connectWebSocket() {
   ws = new WebSocket(`${protocol}//${host}/ws`);
 
   ws.onopen = () => {
-    console.log("✅ Connected to game");
+    console.log("Connected to game");
+    reconnectAttempts = 0;
     hideLoading();
 
     // Identify ourselves to the server
@@ -83,8 +95,15 @@ function connectWebSocket() {
   };
 
   ws.onclose = () => {
-    console.log("🔌 Disconnected");
-    showError("Disconnected from server");
+    console.log("Disconnected");
+    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 15000);
+      reconnectAttempts++;
+      showToast(`Reconnecting... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+      setTimeout(() => connectWebSocket(), delay);
+    } else {
+      showError("Connection lost. Refresh to try again.");
+    }
   };
 }
 
@@ -111,7 +130,7 @@ function handleMessage(data: any) {
       break;
 
     case "cardEffect":
-      handleCardEffect(data.effect);
+      handleCardEffect(data.effect, data.targetPlayerId);
       break;
 
     case "error":
@@ -126,17 +145,6 @@ function handleMessage(data: any) {
 // Render complete game state
 function renderGameState(state: GameState, playerId: string) {
   yourPlayerId = playerId;
-
-  // Check for winner first
-  if (state.winner) {
-    if (state.winner === "__admin__") {
-      showGameOver("Game ended by admin");
-    } else {
-      const winner = state.players.find((p) => p.id === state.winner);
-      showGameOver(winner ? winner.name : "Unknown player");
-    }
-    return;
-  }
 
   // Update turn indicator and hand area
   const isYourTurn = state.currentPlayerId === yourPlayerId;
@@ -180,6 +188,16 @@ function renderGameState(state: GameState, playerId: string) {
   const drawBtn = document.getElementById("drawBtn") as HTMLButtonElement;
   drawBtn.disabled = !isYourTurn;
   drawBtn.textContent = state.pendingDraws > 0 ? `Draw +${state.pendingDraws}` : "Draw";
+
+  // Check for winner after rendering all game state (show modal on top of final board)
+  if (state.winner) {
+    if (state.winner === "__admin__") {
+      showGameOver("Game ended by admin");
+    } else {
+      const winner = state.players.find((p) => p.id === state.winner);
+      showGameOver((winner ? winner.name : "Unknown player") + " wins!");
+    }
+  }
 }
 
 // Render opponents
@@ -267,48 +285,71 @@ function renderHand(
   }
 
   const count = hand.length;
-  const cardSpacing = Math.min(48, 280 / count);
-  const maxRotation = 40; // degrees
+  const useScrollLayout = count > 12;
 
-  hand.forEach((card, index) => {
-    const cardEl = createCardElement(card);
-    cardEl.dataset.index = index.toString();
+  // Toggle layout mode class on the container
+  container.classList.toggle("scroll-layout", useScrollLayout);
 
-    // Determine if card is playable
-    const isPlayable = isYourTurn && canPlayCardClient(card, topCard, state);
+  if (useScrollLayout) {
+    // Horizontal scroll layout for large hands
+    hand.forEach((card, index) => {
+      const cardEl = createCardElement(card);
+      cardEl.dataset.index = index.toString();
 
-    if (isPlayable) {
-      cardEl.classList.add("playable");
-      cardEl.onclick = () => handleCardClick(index, card);
-    } else {
-      cardEl.classList.add("unplayable");
-    }
+      const isPlayable = isYourTurn && canPlayCardClient(card, topCard, state);
+      if (isPlayable) {
+        cardEl.classList.add("playable");
+        cardEl.onclick = () => handleCardClick(index, card);
+      } else {
+        cardEl.classList.add("unplayable");
+      }
 
-    // Calculate fan layout positioning
-    const normalizedIndex = count === 1 ? 0 : (index / (count - 1)) - 0.5; // -0.5 to 0.5
-    const rotation = normalizedIndex * maxRotation;
+      cardEl.style.zIndex = index.toString();
 
-    // Arc effect: edges lower than center
-    const arcDepth = 20; // pixels
-    const yOffset = Math.abs(normalizedIndex) * 2 * arcDepth;
+      container.appendChild(cardEl);
+    });
+  } else {
+    // Fan layout for <= 12 cards
+    const cardSpacing = Math.min(48, 280 / count);
+    const maxRotation = 40; // degrees
 
-    // Playable cards get lifted 8px higher
-    const playableLift = isPlayable ? 8 : 0;
+    hand.forEach((card, index) => {
+      const cardEl = createCardElement(card);
+      cardEl.dataset.index = index.toString();
 
-    // Position from left
-    const leftPosition = (count - 1) * cardSpacing / 2 - index * cardSpacing;
+      const isPlayable = isYourTurn && canPlayCardClient(card, topCard, state);
+      if (isPlayable) {
+        cardEl.classList.add("playable");
+        cardEl.onclick = () => handleCardClick(index, card);
+      } else {
+        cardEl.classList.add("unplayable");
+      }
 
-    // Z-index increases left to right
-    const zIndex = index;
+      // Calculate fan layout positioning
+      const normalizedIndex = count === 1 ? 0 : (index / (count - 1)) - 0.5;
+      const rotation = normalizedIndex * maxRotation;
 
-    // Apply styles
-    cardEl.style.left = `calc(50% - ${leftPosition}px)`;
-    cardEl.style.bottom = `${10 + playableLift - yOffset}px`;
-    cardEl.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
-    cardEl.style.zIndex = zIndex.toString();
+      // Arc effect: edges lower than center
+      const arcDepth = 20;
+      const yOffset = Math.abs(normalizedIndex) * 2 * arcDepth;
 
-    container.appendChild(cardEl);
-  });
+      // Playable cards get lifted 8px higher
+      const playableLift = isPlayable ? 8 : 0;
+
+      // Position from left
+      const leftPosition = (count - 1) * cardSpacing / 2 - index * cardSpacing;
+
+      // Z-index increases left to right
+      const zIndex = index;
+
+      cardEl.style.left = `calc(50% - ${leftPosition}px)`;
+      cardEl.style.bottom = `${10 + playableLift - yOffset}px`;
+      cardEl.style.transform = `translateX(-50%) rotate(${rotation}deg)`;
+      cardEl.style.zIndex = zIndex.toString();
+
+      container.appendChild(cardEl);
+    });
+  }
 
   document.getElementById("cardCount")!.textContent = hand.length.toString();
 }
@@ -343,6 +384,10 @@ function createCardElement(card: Card): HTMLElement {
       content = `<span class="card-value">+20</span>`;
       cornerValue = "+20";
       break;
+    case "plus20color":
+      content = `<span class="card-value">+20</span>`;
+      cornerValue = "+20";
+      break;
     case "skip":
       content = `<span class="card-value">⊘</span><span class="card-type">SKIP</span>`;
       cornerValue = "⊘";
@@ -350,6 +395,10 @@ function createCardElement(card: Card): HTMLElement {
     case "reverse":
       content = `<span class="card-value">⇄</span><span class="card-type">REV</span>`;
       cornerValue = "⇄";
+      break;
+    case "swap":
+      content = `<span class="card-value">⇅</span><span class="card-type">SWAP</span>`;
+      cornerValue = "⇅";
       break;
   }
 
@@ -393,6 +442,10 @@ function renderTopCard(card: Card, lastColor: string | null) {
       content = `<span class="card-value">+20</span>`;
       cornerValue = "+20";
       break;
+    case "plus20color":
+      content = `<span class="card-value">+20</span>`;
+      cornerValue = "+20";
+      break;
     case "skip":
       content = `<span class="card-value">⊘</span>`;
       cornerValue = "⊘";
@@ -400,6 +453,10 @@ function renderTopCard(card: Card, lastColor: string | null) {
     case "reverse":
       content = `<span class="card-value">⇄</span>`;
       cornerValue = "⇄";
+      break;
+    case "swap":
+      content = `<span class="card-value">⇅</span>`;
+      cornerValue = "⇅";
       break;
   }
 
@@ -436,24 +493,20 @@ function playCard(index: number, chosenColor?: string) {
     }
   } catch {}
 
-  ws.send(
-    JSON.stringify({
-      action: "play",
-      cardIndex: index,
-      chosenColor,
-    })
-  );
+  safeSend({
+    action: "play",
+    cardIndex: index,
+    chosenColor,
+  });
 }
 
 // Draw card
 function drawCards() {
   if (!ws) return;
 
-  ws.send(
-    JSON.stringify({
-      action: "draw",
-    })
-  );
+  safeSend({
+    action: "draw",
+  });
 }
 
 // Trigger haptic feedback for forced draws
@@ -488,14 +541,20 @@ function handleCardDrawn(cards: Card[], forced: boolean) {
   showToast(message);
 }
 
-// Handle card effects (skip/reverse)
-function handleCardEffect(effect: string) {
+// Handle card effects (skip/reverse/swap)
+function handleCardEffect(effect: string, targetPlayerId?: string) {
   try {
     if (effect === "skipped") {
       haptic(); // Single pulse — you got skipped
       showToast("You were skipped!");
     } else if (effect === "reversed") {
       navigator.vibrate?.(30) || haptic(); // Light buzz — direction changed
+      showToast("Direction reversed!");
+    } else if (effect === "youSwapped" && targetPlayerId === yourPlayerId) {
+      showToast("Hands swapped!");
+    } else if (effect === "swapped" && targetPlayerId === yourPlayerId) {
+      haptic(); // Haptic feedback for being swapped
+      showToast("Your hand was swapped!");
     }
   } catch {}
 }
@@ -504,19 +563,11 @@ function handleCardEffect(effect: string) {
 function canPlayCardClient(card: Card, topCard: Card, state: GameState): boolean {
   // If pendingDraws > 0, only +cards can be played
   if (state.pendingDraws > 0) {
-    return card.type === "plus2" || card.type === "plus4" || card.type === "plus20";
+    return card.type === "plus2" || card.type === "plus4" || card.type === "plus20" || card.type === "plus20color";
   }
 
   // Wild cards always playable
   if (card.type === "wild") return true;
-
-  // +cards can stack on any +card
-  if (
-    (card.type === "plus2" || card.type === "plus4" || card.type === "plus20") &&
-    (topCard.type === "plus2" || topCard.type === "plus4" || topCard.type === "plus20")
-  ) {
-    return true;
-  }
 
   // Reverse limit
   if (card.type === "reverse" && state.reverseStackCount >= 4) {
