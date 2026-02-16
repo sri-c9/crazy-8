@@ -98,6 +98,11 @@
     let reconnectAttempts = 0;
     const MAX_RECONNECT_ATTEMPTS = 5;
 
+    // Expose variables for E2E testing
+    window.ws = ws;
+    window.currentPlayerId = currentPlayerId;
+    window.currentRoomCode = currentRoomCode;
+
     // Safe WebSocket send helper
     function safeSend(data) {
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -129,6 +134,7 @@
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const host = window.location.host;
       ws = new WebSocket(`${protocol}//${host}/ws`);
+      window.ws = ws; // Expose for testing
 
       ws.onopen = () => {
         console.log("✅ WebSocket connected");
@@ -138,9 +144,14 @@
       };
 
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        console.log("Received:", data);
-        handleMessage(data);
+        try {
+          const data = JSON.parse(event.data);
+          console.log("Received:", data);
+          handleMessage(data);
+        } catch (error) {
+          console.error("Failed to parse message:", error);
+          showToast("Received invalid data from server");
+        }
       };
 
       ws.onerror = (error) => {
@@ -170,6 +181,8 @@
         case "roomCreated":
           currentRoomCode = data.roomCode;
           currentPlayerId = data.playerId;
+          window.currentPlayerId = currentPlayerId; // Expose for testing
+          window.currentRoomCode = currentRoomCode; // Expose for testing
           isHost = true;  // Creator is always host
           showRoom(data.roomCode);
           break;
@@ -177,6 +190,8 @@
         case "joined":
           currentRoomCode = data.roomCode;
           currentPlayerId = data.playerId;
+          window.currentPlayerId = currentPlayerId; // Expose for testing
+          window.currentRoomCode = currentRoomCode; // Expose for testing
           showRoom(data.roomCode);
           break;
 

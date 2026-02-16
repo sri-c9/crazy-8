@@ -148,7 +148,8 @@ export function canPlayCard(
   }
 
   // Wild-type cards always playable (wild, plus4, plus20 have no color restrictions)
-  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
+  // Swap is also always playable regardless of color
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "swap") {
     return true;
   }
 
@@ -284,6 +285,11 @@ export function playCard(
   // Add to discard pile
   room.discardPile.push(card);
 
+  // Trim discard pile to prevent unbounded growth (only top card matters)
+  if (room.discardPile.length > 50) {
+    room.discardPile = room.discardPile.slice(-1);
+  }
+
   // Handle special card effects (Phase 3)
 
   // Plus cards: accumulate draws
@@ -336,12 +342,12 @@ export function playCard(
     return; // Don't advance turn if game over
   }
 
-  // Advance turn: skip cards advance by 3, others advance by 1
+  // Advance turn: skip cards advance by 2 (skip 1 player), others advance by 1
   if (card.type === "skip") {
     const playerArray = Array.from(room.players.keys());
     const count = playerArray.length;
     room.currentPlayerIndex =
-      (room.currentPlayerIndex + 3 * room.direction + count) % count;
+      (room.currentPlayerIndex + 2 * room.direction + count) % count;
   } else {
     advanceTurn(room);
   }

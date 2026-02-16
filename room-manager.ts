@@ -1,4 +1,4 @@
-import type { Card } from "./game-logic";
+import type { Card, CardColor } from "./game-logic";
 import { startGame } from "./game-logic";
 
 interface Player {
@@ -21,7 +21,7 @@ interface Room {
   discardPile: Card[];
   pendingDraws: number;
   reverseStackCount: number;
-  lastPlayedColor: string | null;
+  lastPlayedColor: CardColor | null;
 }
 
 const rooms = new Map<string, Room>();
@@ -156,8 +156,14 @@ function leaveRoom(roomCode: string, playerId: string): void {
       // Player before current was removed, shift index back
       room.currentPlayerIndex--;
     } else if (removedIndex === room.currentPlayerIndex) {
-      // Current player was removed, wrap index to stay in bounds
-      room.currentPlayerIndex = room.currentPlayerIndex % room.players.size;
+      // Current player was removed, adjust based on direction
+      if (room.direction === -1) {
+        // In reverse, adjust backward
+        room.currentPlayerIndex = (room.currentPlayerIndex - 1 + room.players.size) % room.players.size;
+      } else {
+        // In forward direction, wrap index to stay in bounds
+        room.currentPlayerIndex = room.currentPlayerIndex % room.players.size;
+      }
     }
     // If removedIndex > currentPlayerIndex, no adjustment needed
   }
@@ -195,7 +201,7 @@ function getRoom(roomCode: string): Room | undefined {
   return rooms.get(roomCode);
 }
 
-interface PlayerListItem extends Player {
+interface PlayerListItem extends Omit<Player, 'hand'> {
   isHost: boolean;
 }
 

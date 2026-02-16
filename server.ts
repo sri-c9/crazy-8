@@ -1,4 +1,5 @@
 import type { Server, ServerWebSocket } from "bun";
+import path from "path";
 import {
   createRoom,
   joinRoom,
@@ -16,6 +17,7 @@ import {
   getCurrentPlayer,
   getTopCard,
   checkWinCondition,
+  advanceTurn,
   type Card,
   type CardColor,
 } from "./game-logic";
@@ -78,11 +80,17 @@ const server = Bun.serve<WebSocketData>({
       return new Response("Websocket upgrade failed", { status: 500 });
     }
 
-    let filePath: string = "./public" + url.pathname;
-    if (url.pathname === "/") {
-      filePath = "./public/index.html";
+    // Prevent path traversal attacks
+    const publicDir = path.resolve("./public");
+    let requestedPath = url.pathname === "/" ? "/index.html" : url.pathname;
+    const resolvedPath = path.resolve(publicDir, "." + requestedPath);
+
+    // Verify the resolved path is within the public directory
+    if (!resolvedPath.startsWith(publicDir)) {
+      return new Response("Forbidden", { status: 403 });
     }
-    const file = Bun.file(filePath);
+
+    const file = Bun.file(resolvedPath);
     if (await file.exists()) {
       return new Response(file);
     }
@@ -133,15 +141,48 @@ const server = Bun.serve<WebSocketData>({
 
     close(ws: ServerWebSocket<WebSocketData>) {
       if (ws.data.roomCode && ws.data.playerId) {
-        disconnectPlayer(ws.data.roomCode, ws.data.playerId);
-        ws.unsubscribe(ws.data.roomCode);
-        playerConnections.delete(ws.data.playerId);
+        const roomCode = ws.data.roomCode;
+        const playerId = ws.data.playerId;
 
+        disconnectPlayer(roomCode, playerId);
+        ws.unsubscribe(roomCode);
+        playerConnections.delete(playerId);
+
+        const room = getRoom(roomCode);
+        if (!room) return;
+
+        // If game is playing and disconnected player was current, advance turn
+        if (room.status === GameStatus.playing) {
+          const currentPlayerId = getCurrentPlayer(room);
+          if (currentPlayerId === playerId) {
+            // Auto-draw if pending draws, otherwise advance turn
+            if (room.pendingDraws > 0) {
+              try {
+                drawCard(room, playerId);
+              } catch {
+                // Ignore errors (player already disconnected)
+              }
+            } else {
+              advanceTurn(room);
+            }
+          }
+
+          // Check if only 1 player left (game over)
+          if (room.players.size === 1) {
+            const winnerId = Array.from(room.players.keys())[0];
+            broadcastGameState(roomCode, winnerId);
+          } else {
+            // Broadcast updated game state
+            broadcastGameState(roomCode);
+          }
+        }
+
+        // Broadcast updated player list
         server.publish(
-          ws.data.roomCode,
+          roomCode,
           JSON.stringify({
             type: "playerList",
-            players: getRoomPlayerList(ws.data.roomCode),
+            players: getRoomPlayerList(roomCode),
           }),
         );
       }
@@ -265,6 +306,17 @@ const handleRejoin = (
     ws.data.playerName = player.name;
     ws.data.avatar = player.avatar;
     ws.data.roomCode = roomCode;
+
+    // Clean up old WebSocket if player is rejoining
+    const existingWs = playerConnections.get(playerId);
+    if (existingWs && existingWs !== ws) {
+      try {
+        existingWs.unsubscribe(roomCode);
+        existingWs.close();
+      } catch {
+        // Ignore errors from closing stale connections
+      }
+    }
 
     // Subscribe to room
     ws.subscribe(roomCode);
@@ -410,7 +462,12 @@ const handlePlayCard = (
     }
 
     const card = player.hand[cardIndex];
-    if (card && (card.type === "wild" || card.type === "plus4" || card.type === "plus20")) {
+    if (!card) {
+      ws.send(JSON.stringify({ type: "error", message: "Invalid card index" }));
+      return;
+    }
+
+    if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
       if (!msg.chosenColor) {
         ws.send(JSON.stringify({ type: "error", message: "Must choose a color for this card" }));
         return;
@@ -434,12 +491,11 @@ const handlePlayCard = (
     }
 
     if (card.type === "skip") {
-      // Skip advances by 3 (skips 2 players)
+      // Skip advances by 2 (skips 1 player)
       const playerArray = Array.from(room.players.keys());
       const count = playerArray.length;
-      const skippedIndex1 = (room.currentPlayerIndex + room.direction + count) % count;
-      const skippedIndex2 = (room.currentPlayerIndex + 2 * room.direction + count) % count;
-      skippedPlayerIds = [playerArray[skippedIndex1], playerArray[skippedIndex2]];
+      const skippedIndex = (room.currentPlayerIndex + room.direction + count) % count;
+      skippedPlayerIds = [playerArray[skippedIndex]];
     }
 
     playCard(room, playerId, cardIndex, msg.chosenColor);
@@ -471,7 +527,7 @@ const handlePlayCard = (
           JSON.stringify({
             type: "cardEffect",
             effect: "youSwapped",
-            targetPlayerId: playerId,
+            targetPlayerId: swapTargetId,
           }),
         );
       }
@@ -483,7 +539,7 @@ const handlePlayCard = (
           JSON.stringify({
             type: "cardEffect",
             effect: "swapped",
-            targetPlayerId: swapTargetId,
+            targetPlayerId: playerId,
           }),
         );
       }
@@ -526,6 +582,9 @@ const handleDrawCard = (ws: ServerWebSocket<WebSocketData>) => {
       return;
     }
 
+    // Capture whether this is a forced draw before drawing
+    const wasForcedDraw = room.pendingDraws > 0;
+
     const drawnCards = drawCard(room, playerId);
 
     // Send drawn cards to player (direct message)
@@ -533,7 +592,7 @@ const handleDrawCard = (ws: ServerWebSocket<WebSocketData>) => {
       JSON.stringify({
         type: "cardDrawn",
         cards: drawnCards,
-        forced: drawnCards.length > 1, // True if plus-stack forced draw
+        forced: wasForcedDraw,
       }),
     );
 

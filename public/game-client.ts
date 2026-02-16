@@ -200,7 +200,7 @@ function renderGameState(state: GameState, playerId: string) {
   drawBtn.textContent = state.pendingDraws > 0 ? `Draw +${state.pendingDraws}` : "Draw";
 
   // Check for winner after rendering all game state (show modal on top of final board)
-  if (state.winner) {
+  if (state.winner && !gameOver) {
     if (state.winner === "__admin__") {
       showGameOver("Game ended by admin");
     } else {
@@ -563,9 +563,9 @@ function handleCardEffect(effect: string, targetPlayerId?: string) {
     } else if (effect === "reversed") {
       navigator.vibrate?.(30) || haptic(); // Light buzz — direction changed
       showToast("Direction reversed!");
-    } else if (effect === "youSwapped" && targetPlayerId === yourPlayerId) {
+    } else if (effect === "youSwapped") {
       showToast("Hands swapped!");
-    } else if (effect === "swapped" && targetPlayerId === yourPlayerId) {
+    } else if (effect === "swapped") {
       haptic(); // Haptic feedback for being swapped
       showToast("Your hand was swapped!");
     }
@@ -580,7 +580,8 @@ function canPlayCardClient(card: Card, topCard: Card, state: GameState): boolean
   }
 
   // Wild-type cards always playable (wild, plus4, plus20 have no color restrictions)
-  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") return true;
+  // Swap is also always playable regardless of color
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "swap") return true;
 
   // Reverse limit
   if (card.type === "reverse" && state.reverseStackCount >= 4) {
