@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Insane Crazy 8 - Lobby</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header with styled logo -->
+    <div class="lobby-header">
+      <div class="logo-badge">8</div>
+      <h1 class="lobby-title">Insane Crazy 8</h1>
+      <p class="lobby-subtitle">Play with friends</p>
+    </div>
+
+    <!-- Connection status pill (absolute positioned) -->
+    <div class="connection-pill" id="connectionPill">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="connectionStatus">Connecting</span>
+    </div>
+
+    <!-- Player Setup -->
+    <div class="section section-visible" id="setupSection">
+      <h2>Player Setup</h2>
+
+      <div class="form-group">
+        <label>Your Name:</label>
+        <input type="text" id="playerName" placeholder="Enter your name" maxlength="20" />
+      </div>
+
+      <div class="form-group">
+        <label>Choose Avatar</label>
+        <div class="avatar-grid" id="avatarGrid">
+          <button class="avatar-btn" data-avatar="😎">😎</button>
+          <button class="avatar-btn" data-avatar="🔥">🔥</button>
+          <button class="avatar-btn" data-avatar="👻">👻</button>
+          <button class="avatar-btn" data-avatar="🎮">🎮</button>
+          <button class="avatar-btn" data-avatar="🚀">🚀</button>
+          <button class="avatar-btn" data-avatar="⚡">⚡</button>
+          <button class="avatar-btn" data-avatar="🎯">🎯</button>
+          <button class="avatar-btn" data-avatar="🌟">🌟</button>
+          <button class="avatar-btn" data-avatar="🎨">🎨</button>
+          <button class="avatar-btn" data-avatar="🎭">🎭</button>
+          <button class="avatar-btn" data-avatar="🎪">🎪</button>
+          <button class="avatar-btn" data-avatar="🎲">🎲</button>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="createBtn">Create Room</button>
+        <div class="divider"><span>OR</span></div>
+        <input type="text" id="joinCode" placeholder="ABXY" maxlength="4" class="room-code-input" />
+        <button class="btn btn-secondary" id="joinBtn">Join Room</button>
+      </div>
+    </div>
+
+    <!-- Room Display -->
+    <div class="section hidden" id="roomSection">
+      <div class="room-info">
+        <p class="room-info-label">Share this code</p>
+        <div class="code-card">
+          <div class="status-dot live"></div>
+          <div class="code-display" id="codeDisplay"></div>
+          <button class="copy-btn" id="copyCodeBtn" aria-label="Copy code">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <rect x="7" y="7" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M4 13H3C2.44772 13 2 12.5523 2 12V4C2 3.44772 2.44772 3 3 3H11C11.5523 3 12 3.44772 12 4V5" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="players-section">
+        <h3>Players (<span id="playerCount">0</span>/6)</h3>
+        <div class="player-list-grouped" id="playerList"></div>
+      </div>
+
+      <!-- Start Game Button (host only, min 3 players) -->
+      <button class="btn btn-primary hidden" id="startGameBtn">Start Game</button>
+      <p id="waitingMessage" class="hidden">Waiting for host to start...</p>
+    </div>
+
+  </div>
+
+  <!-- Toast notification (fixed bottom) -->
+  <div class="toast hidden" id="toast">
+    <span id="toastMessage"></span>
+  </div>
+
+  <script>
+    let ws = null;
+    let selectedAvatar = "😎";
+    let currentRoomCode = null;
+    let currentPlayerId = null;
+    let isHost = false;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
+
+    // Expose variables for E2E testing
+    window.ws = ws;
+    window.currentPlayerId = currentPlayerId;
+    window.currentRoomCode = currentRoomCode;
+
+    // Safe WebSocket send helper
+    function safeSend(data) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(data));
+      } else {
+        console.warn("WebSocket not ready, cannot send:", data);
+      }
+    }
+
+    // DOM elements
+    const statusEl = document.getElementById("connectionStatus");
+    const statusDot = document.getElementById("statusDot");
+    const setupSection = document.getElementById("setupSection");
+    const roomSection = document.getElementById("roomSection");
+    const playerNameInput = document.getElementById("playerName");
+    const joinCodeInput = document.getElementById("joinCode");
+    const createBtn = document.getElementById("createBtn");
+    const joinBtn = document.getElementById("joinBtn");
+    const codeDisplayEl = document.getElementById("codeDisplay");
+    const playerListEl = document.getElementById("playerList");
+    const playerCountEl = document.getElementById("playerCount");
+    const toastEl = document.getElementById("toast");
+    const toastMessageEl = document.getElementById("toastMessage");
+    const avatarBtns = document.querySelectorAll(".avatar-btn");
+    const copyCodeBtn = document.getElementById("copyCodeBtn");
+
+    // Initialize WebSocket
+    function connectWebSocket() {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const host = window.location.host;
+      ws = new WebSocket(`${protocol}//${host}/ws`);
+      window.ws = ws; // Expose for testing
+
+      ws.onopen = () => {
+        console.log("✅ WebSocket connected");
+        reconnectAttempts = 0;
+        statusEl.textContent = "Connected";
+        statusDot.className = "status-dot connected";
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log("Received:", data);
+          handleMessage(data);
+        } catch (error) {
+          console.error("Failed to parse message:", error);
+          showToast("Received invalid data from server");
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error("❌ WebSocket error:", error);
+        statusEl.textContent = "Connection Error";
+        statusDot.className = "status-dot error";
+      };
+
+      ws.onclose = () => {
+        console.log("🔌 WebSocket closed");
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 15000);
+          reconnectAttempts++;
+          statusEl.textContent = `Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`;
+          statusDot.className = "status-dot connecting";
+          setTimeout(() => connectWebSocket(), delay);
+        } else {
+          statusEl.textContent = "Connection lost. Refresh to try again.";
+          statusDot.className = "status-dot error";
+        }
+      };
+    }
+
+    // Handle incoming messages
+    function handleMessage(data) {
+      switch (data.type) {
+        case "roomCreated":
+          currentRoomCode = data.roomCode;
+          currentPlayerId = data.playerId;
+          window.currentPlayerId = currentPlayerId; // Expose for testing
+          window.currentRoomCode = currentRoomCode; // Expose for testing
+          isHost = true;  // Creator is always host
+          showRoom(data.roomCode);
+          break;
+
+        case "joined":
+          currentRoomCode = data.roomCode;
+          currentPlayerId = data.playerId;
+          window.currentPlayerId = currentPlayerId; // Expose for testing
+          window.currentRoomCode = currentRoomCode; // Expose for testing
+          showRoom(data.roomCode);
+          break;
+
+        case "playerList":
+          updatePlayerList(data.players);
+          break;
+
+        case "gameStarted":
+          // Redirect to game page
+          window.location.href = `/game.html?room=${currentRoomCode}&player=${currentPlayerId}`;
+          break;
+
+        case "error":
+          showToast(data.message);
+
+          // Re-enable Start Game button if it was clicked
+          const startBtn = document.getElementById("startGameBtn");
+          if (startBtn && startBtn.disabled) {
+            startBtn.disabled = false;
+            startBtn.textContent = "Start Game";
+            startBtn.style.opacity = "1";
+          }
+          break;
+
+        default:
+          console.log("Unknown message type:", data.type);
+      }
+    }
+
+    // Avatar selection
+    avatarBtns.forEach(btn => {
+      btn.addEventListener("click", () => {
+        avatarBtns.forEach(b => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        selectedAvatar = btn.dataset.avatar;
+      });
+    });
+
+    // Create room
+    createBtn.addEventListener("click", () => {
+      const playerName = playerNameInput.value.trim();
+      if (!playerName) {
+        showError("Please enter your name");
+        return;
+      }
+
+      safeSend({
+        action: "create",
+        playerName,
+        avatar: selectedAvatar
+      });
+    });
+
+    // Join room
+    joinBtn.addEventListener("click", () => {
+      const playerName = playerNameInput.value.trim();
+      const roomCode = joinCodeInput.value.trim().toUpperCase();
+
+      if (!playerName) {
+        showError("Please enter your name");
+        return;
+      }
+
+      if (!roomCode || roomCode.length !== 4) {
+        showError("Please enter a valid 4-character room code");
+        return;
+      }
+
+      safeSend({
+        action: "join",
+        roomCode,
+        playerName,
+        avatar: selectedAvatar
+      });
+    });
+
+    // Show room section with transition
+    function showRoom(roomCode) {
+      // Hide setup section with transition
+      setupSection.classList.add("section-exiting");
+      setTimeout(() => {
+        setupSection.classList.add("hidden");
+        setupSection.classList.remove("section-exiting");
+      }, 300);
+
+      // Show room section with transition
+      codeDisplayEl.textContent = roomCode;
+      roomSection.classList.remove("hidden");
+      setTimeout(() => {
+        roomSection.classList.add("section-visible");
+      }, 10);
+    }
+
+    // Update player list (grouped-table style)
+    function updatePlayerList(players) {
+      playerListEl.innerHTML = "";
+      playerCountEl.textContent = players.length;
+
+      // Update isHost if current player is now the host
+      const currentPlayer = players.find(p => p.id === currentPlayerId);
+      if (currentPlayer) {
+        isHost = currentPlayer.isHost;
+      }
+
+      players.forEach((player, index) => {
+        const playerRow = document.createElement("div");
+        playerRow.className = "player-row" + (player.connected ? "" : " disconnected");
+
+        // Create elements programmatically to prevent XSS
+        const avatarSpan = document.createElement("span");
+        avatarSpan.className = "player-avatar";
+        avatarSpan.textContent = player.avatar;
+
+        const playerInfo = document.createElement("div");
+        playerInfo.className = "player-info";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "player-name";
+        nameSpan.textContent = player.name;
+        playerInfo.appendChild(nameSpan);
+
+        if (!player.connected) {
+          const statusSpan = document.createElement("span");
+          statusSpan.className = "status-text";
+          statusSpan.textContent = "Disconnected";
+          playerInfo.appendChild(statusSpan);
+        }
+
+        playerRow.appendChild(avatarSpan);
+        playerRow.appendChild(playerInfo);
+
+        if (player.isHost) {
+          const hostBadge = document.createElement("span");
+          hostBadge.className = "host-badge";
+          hostBadge.textContent = "Host";
+          playerRow.appendChild(hostBadge);
+        }
+
+        playerRow.style.animationDelay = `${index * 50}ms`;
+        playerListEl.appendChild(playerRow);
+      });
+
+      // Show/hide start game button
+      const startGameBtn = document.getElementById("startGameBtn");
+      const waitingMessage = document.getElementById("waitingMessage");
+
+      if (isHost && players.length >= 3) {
+        startGameBtn.classList.remove("hidden");
+        waitingMessage.classList.add("hidden");
+      } else if (isHost && players.length < 3) {
+        startGameBtn.classList.add("hidden");
+        waitingMessage.classList.remove("hidden");
+        waitingMessage.textContent = `Need ${3 - players.length} more player(s) to start`;
+      } else {
+        startGameBtn.classList.add("hidden");
+        waitingMessage.classList.remove("hidden");
+        waitingMessage.textContent = "Waiting for host to start...";
+      }
+    }
+
+    // Show toast notification
+    function showToast(message) {
+      toastMessageEl.textContent = message;
+      toastEl.classList.remove("hidden");
+      toastEl.classList.add("toast-visible");
+
+      setTimeout(() => {
+        toastEl.classList.remove("toast-visible");
+        setTimeout(() => {
+          toastEl.classList.add("hidden");
+        }, 300);
+      }, 3000);
+    }
+
+    // Backward compatibility alias
+    const showError = showToast;
+
+    // Copy room code to clipboard
+    copyCodeBtn.addEventListener("click", async () => {
+      const code = codeDisplayEl.textContent;
+      try {
+        await navigator.clipboard.writeText(code);
+        showToast("Code copied!");
+      } catch (err) {
+        console.error("Failed to copy:", err);
+        showToast("Copy failed");
+      }
+    });
+
+    // Start game button
+    document.getElementById("startGameBtn").addEventListener("click", () => {
+      const startBtn = document.getElementById("startGameBtn");
+
+      if (!ws || !currentRoomCode) {
+        showToast("Not connected to a room");
+        return;
+      }
+
+      // Prevent multiple clicks
+      if (startBtn.disabled) return;
+
+      // Disable button and show loading state
+      startBtn.disabled = true;
+      startBtn.textContent = "Starting...";
+      startBtn.style.opacity = "0.6";
+
+      safeSend({
+        action: "startGame"
+      });
+    });
+
+    // Convert room code input to uppercase
+    joinCodeInput.addEventListener("input", (e) => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+
+    // Initialize
+    connectWebSocket();
+
+    // Select first avatar by default
+    avatarBtns[0].classList.add("selected");
+  </script>
+</body>
+</html>

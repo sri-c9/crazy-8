@@ -1,4 +1,4 @@
-# Phase 1: Learning Guide — Build It Yourself
+# Server Guide: Build It Yourself
 
 Welcome! This guide will walk you through building the core server and room management system. Instead of copying code, you'll learn by building each piece step by step. I'll explain the concepts, give you hints, and let you write the code.
 
@@ -530,7 +530,8 @@ In the `close` handler:
 ```ts
 close(ws: ServerWebSocket<WebSocketData>) {
   if (ws.data.roomCode && ws.data.playerId) {
-    leaveRoom(ws.data.roomCode, ws.data.playerId);
+    // Mark player as disconnected (not removed) for potential reconnection
+    disconnectPlayer(ws.data.roomCode, ws.data.playerId);
     ws.unsubscribe(ws.data.roomCode);
 
     server.publish(ws.data.roomCode, JSON.stringify({
@@ -540,6 +541,8 @@ close(ws: ServerWebSocket<WebSocketData>) {
   }
 }
 ```
+
+**Note:** We use `disconnectPlayer()` instead of `leaveRoom()` because WebSocket disconnects might be temporary (network issues, phone app backgrounded). The player stays in the room marked as `connected: false`. Use `leaveRoom()` for explicit "leave room" actions from the UI.
 </details>
 
 **Checkpoint 2:** Test with browser DevTools:
@@ -582,11 +585,10 @@ Congratulations! You've built:
 
 ## Next Steps
 
-Phase 2 will add:
-- Game initialization (dealing cards)
-- Turn management
-- Card play validation
-- Basic game rules
+Now that you have a working server, you can:
+- **Deploy with ngrok:** See `docs/guides/DEPLOYMENT-GUIDE.md` to share your server with friends on mobile
+- **Test on multiple devices:** Create a room on your phone, join from a friend's device
+- **Experiment with the code:** Try adding features like player colors, room passwords, or custom avatars
 
 But first, make sure you understand everything you built. Ask me questions about:
 - Why we use `Map` instead of `Object`
@@ -594,4 +596,4 @@ But first, make sure you understand everything you built. Ask me questions about
 - What `ws.data` is for
 - When to use `ws.send()` vs `server.publish()`
 
-Ready to move on? Or want to experiment with Phase 1 more?
+Ready to deploy? Check out the deployment guide!

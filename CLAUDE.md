@@ -54,12 +54,13 @@ The core multiplayer infrastructure uses **Bun's native WebSocket pub/sub topics
 - Exports: `createRoom()`, `joinRoom()`, `leaveRoom()`, `getRoomPlayerList()`, etc.
 - **Design principle:** All validation happens here (room exists, not full, game not started)
 
-**`game-logic.ts`** (Phase 2+) — Game rules engine
+**`game-logic.ts`** (Partially implemented) — Game rules engine
 - Card validation (match color/number, wild cards)
 - Turn order management with direction tracking
 - Plus-card stacking logic (any +card stacks on any +card)
 - Reverse stacking with 4-card limit
 - Win condition detection
+- **Note:** Full game logic plans archived in `docs/random/PHASE2-PLAN.md` and `docs/random/PHASE3-PLAN.md`
 
 ### Client Architecture
 
@@ -202,22 +203,19 @@ feature/* or bugfix/* (active work)
 **"Insane" rules:**
 - **Plus stacking:** Any +card (+2, +4, +20) can deflect to the next player by playing ANY +card, regardless of color
 - **Reverse limit:** Max 4 reverse cards can stack in a row
-- **Skip behavior:** Skip cards skip the next 2 players (not 1)
+- **Skip behavior:** Skip cards skip the next player (advance by 2 positions)
 - **Infinite deck:** Server generates random cards on draw — no reshuffling needed
-- **Card types:** Standard 0-7, 9 (normal), 8 (wild), +2/+4/+20 (draw), Skip, Reverse
+- **Card types:** Standard 0-7, 9 (normal), 8 (wild), +2/+4/+20 (draw), Skip, Reverse, Swap
 
 ## Implementation Phases
 
-**Phase 1:** Core server & rooms — WebSocket infrastructure, room creation/joining, player list broadcasting
-**Phase 2:** Game logic — Card dealing, turn management, basic card play validation
-**Phase 3:** Special cards — Plus-stacking, Skip, Reverse logic
-**Phase 4:** UI polish — Mobile-optimized game board, animations (Claude Code)
-**Phase 5:** Error handling & reconnection
-**Phase 6:** Animations & mobile UX (Claude Code)
-**Phase 7:** Game settings & variations
-**Phase 8:** Admin panel
+**Active Plans:**
+- **Server:** Bun HTTP + WebSocket infrastructure, room management, player list broadcasting (`docs/plans/SERVER-PLAN.md`, `docs/guides/SERVER-GUIDE.md`)
+- **Deployment:** ngrok setup, protocol-aware WebSockets, cross-device testing (`docs/plans/DEPLOYMENT-PLAN.md`, `docs/guides/DEPLOYMENT-GUIDE.md`)
 
-See `docs/OVERVIEW.md` for full roadmap and `docs/plans/PHASE1-PLAN.md` through `PHASE8-PLAN.md` for detailed phase plans.
+**Archived Plans:** Game logic, UI, animations, and admin features are documented in `docs/random/` for future reference. The current focus is on the infrastructure layer only.
+
+See `docs/OVERVIEW.md` for the complete roadmap.
 
 ## Key Design Constraints
 
