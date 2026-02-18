@@ -49,10 +49,10 @@
       </div>
 
       <div class="actions">
-        <button class="btn btn-primary" id="createBtn">Create Room</button>
+        <button class="btn btn-primary" id="createBtn" disabled>Create Room</button>
         <div class="divider"><span>OR</span></div>
         <input type="text" id="joinCode" placeholder="ABXY" maxlength="4" class="room-code-input" />
-        <button class="btn btn-secondary" id="joinBtn">Join Room</button>
+        <button class="btn btn-secondary" id="joinBtn" disabled>Join Room</button>
       </div>
     </div>
 
@@ -135,12 +135,23 @@
         reconnectAttempts = 0;
         statusEl.textContent = "Connected";
         statusDot.className = "status-dot connected";
+        // Enable create/join buttons now that the connection is ready
+        createBtn.disabled = false;
+        joinBtn.disabled = false;
+        // If we were in a room when the connection dropped, rejoin it
+        if (currentRoomCode && currentPlayerId) {
+          safeSend({ action: "rejoin", roomCode: currentRoomCode, playerId: currentPlayerId });
+        }
       };
 
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        console.log("Received:", data);
-        handleMessage(data);
+        try {
+          const data = JSON.parse(event.data);
+          console.log("Received:", data);
+          handleMessage(data);
+        } catch (error) {
+          console.error("Failed to parse message:", error);
+        }
       };
 
       ws.onerror = (error) => {
@@ -189,8 +200,19 @@
           window.location.href = `/game.html?room=${currentRoomCode}&player=${currentPlayerId}`;
           break;
 
+        case "rejoined":
+          // Re-show the room view if player reconnected to an existing room
+          if (currentRoomCode && !roomSection.classList.contains("section-visible")) {
+            showRoom(currentRoomCode);
+          }
+          break;
+
         case "error":
           showToast(data.message);
+
+          // Re-enable create/join buttons so the player can try again
+          createBtn.disabled = false;
+          joinBtn.disabled = false;
 
           // Re-enable Start Game button if it was clicked
           const startBtn = document.getElementById("startGameBtn");
@@ -223,6 +245,8 @@
         return;
       }
 
+      createBtn.disabled = true;
+      joinBtn.disabled = true;
       safeSend({
         action: "create",
         playerName,
@@ -245,6 +269,8 @@
         return;
       }
 
+      createBtn.disabled = true;
+      joinBtn.disabled = true;
       safeSend({
         action: "join",
         roomCode,
@@ -341,10 +367,10 @@
     function showToast(message) {
       toastMessageEl.textContent = message;
       toastEl.classList.remove("hidden");
-      toastEl.classList.add("toast-visible");
+      toastEl.classList.add("show");
 
       setTimeout(() => {
-        toastEl.classList.remove("toast-visible");
+        toastEl.classList.remove("show");
         setTimeout(() => {
           toastEl.classList.add("hidden");
         }, 300);
@@ -391,6 +417,22 @@
     // Convert room code input to uppercase
     joinCodeInput.addEventListener("input", (e) => {
       e.target.value = e.target.value.toUpperCase();
+    });
+
+    // Enter key: join code input → click join button
+    joinCodeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") joinBtn.click();
+    });
+
+    // Enter key: name input → join if code present, otherwise create
+    playerNameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        if (joinCodeInput.value.trim()) {
+          joinBtn.click();
+        } else {
+          createBtn.click();
+        }
+      }
     });
 
     // Initialize

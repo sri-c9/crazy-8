@@ -170,6 +170,12 @@ export function canPlayCard(
     return card.color === targetColor || card.value === topCard.value;
   }
 
+  // Type-matching: same special card type can always be played regardless of color
+  const typeMatchable = ["skip", "reverse", "plus2", "swap", "plus20color"] as const;
+  if (card.type === topCard.type && typeMatchable.includes(card.type as typeof typeMatchable[number])) {
+    return true;
+  }
+
   // Match color for special cards
   return "color" in card && card.color === targetColor;
 }
@@ -342,6 +348,9 @@ export function playCard(
     const count = playerArray.length;
     room.currentPlayerIndex =
       (room.currentPlayerIndex + 3 * room.direction + count) % count;
+  } else if (card.type === "reverse" && room.players.size === 2) {
+    // In a 2-player game, Reverse acts as Skip: direction already flipped above,
+    // so no turn advance — the same player plays again
   } else {
     advanceTurn(room);
   }

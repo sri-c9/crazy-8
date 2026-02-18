@@ -240,6 +240,11 @@ h3 {
   background: var(--color-danger);
 }
 
+.status-dot.connecting {
+  background: #f5a623;
+  animation: pulse-dot 1s infinite;
+}
+
 .status-dot.live {
   background: var(--color-success);
   animation: pulse-dot 2s infinite;
@@ -573,29 +578,6 @@ input[type="text"]:focus {
    Toast Notification
    ======================================== */
 
-.toast {
-  position: fixed;
-  bottom: var(--space-6);
-  left: 50%;
-  transform: translateX(-50%) translateY(100px);
-  background: var(--color-text-primary);
-  color: var(--color-surface);
-  padding: var(--space-3) var(--space-5);
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-base);
-  font-weight: var(--font-weight-medium);
-  box-shadow: var(--shadow-lg);
-  z-index: var(--z-toast);
-  transition: transform var(--duration-normal) var(--ease-spring);
-  margin-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-4));
-  max-width: 90%;
-  text-align: center;
-}
-
-.toast.toast-visible {
-  transform: translateX(-50%) translateY(0);
-}
-
 /* Mobile Responsiveness */
 @media (max-width: 600px) {
   .container {
@@ -737,6 +719,7 @@ input[type="text"]:focus {
 .opponent-node.current-turn .opponent-avatar-circle {
   border-color: var(--card-yellow);
   box-shadow: 0 0 16px rgba(255, 204, 0, 0.6);
+  animation: spotlight-pulse 2s ease-in-out infinite;
 }
 
 @keyframes spotlight-pulse {
@@ -806,12 +789,6 @@ input[type="text"]:focus {
   40% { transform: translateX(6px); }
   60% { transform: translateX(-4px); }
   80% { transform: translateX(4px); }
-}
-
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-5px); }
-  75% { transform: translateX(5px); }
 }
 
 .piles-container {
@@ -906,28 +883,6 @@ input[type="text"]:focus {
   cursor: not-allowed;
 }
 
-.pile-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 25px;
-  font-weight: 700;
-  font-size: 16px;
-  cursor: pointer;
-  transition: all 0.3s;
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-}
-
-.pile-btn:hover:not(:disabled) {
-  transform: translateY(-3px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
-}
-
-.pile-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
 .direction-indicator {
   position: absolute;
@@ -1116,19 +1071,6 @@ input[type="text"]:focus {
   100% {
     box-shadow: none;
   }
-}
-
-.hand-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-3);
-}
-
-.hand-label {
-  color: rgba(255, 255, 255, 0.9);
-  font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-sm);
 }
 
 .card-count-badge {
@@ -1363,6 +1305,7 @@ input[type="text"]:focus {
 }
 
 .loading-overlay.hidden {
+  display: flex !important; /* override global .hidden so opacity transition can play */
   opacity: 0;
   pointer-events: none;
 }
@@ -1399,10 +1342,6 @@ input[type="text"]:focus {
   }
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
 .loading-overlay p {
   color: white;
   margin-top: var(--space-5);
@@ -1428,6 +1367,7 @@ input[type="text"]:focus {
   box-shadow: var(--shadow-lg);
   z-index: var(--z-toast);
   transition: transform 0.3s ease-out;
+  margin-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-4));
   max-width: 90%;
   text-align: center;
 }
@@ -1438,12 +1378,6 @@ input[type="text"]:focus {
 
 .toast.error {
   background: rgba(231, 76, 60, 0.95);
-}
-
-/* Pulse Animation */
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
 }
 
 /* Mobile Responsive - Game Board */
