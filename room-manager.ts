@@ -170,6 +170,16 @@ function disconnectPlayer(roomCode: string, playerId: string): void {
     return; // Silently ignore if room doesn't exist
   }
 
+  // If the current player disconnects mid-game with a pending draw stack, clear it
+  // so the next player doesn't inherit an unfair draw obligation
+  if (room.status === GameStatus.playing && room.pendingDraws > 0) {
+    const playerKeys = Array.from(room.players.keys());
+    const disconnectingIndex = playerKeys.indexOf(playerId);
+    if (disconnectingIndex === room.currentPlayerIndex) {
+      room.pendingDraws = 0;
+    }
+  }
+
   const player = room.players.get(playerId);
   if (player) {
     player.connected = false;

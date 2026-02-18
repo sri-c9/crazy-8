@@ -1,4 +1,5 @@
 import type { Server, ServerWebSocket } from "bun";
+import { resolve } from "path";
 import {
   createRoom,
   joinRoom,
@@ -78,11 +79,13 @@ const server = Bun.serve<WebSocketData>({
       return new Response("Websocket upgrade failed", { status: 500 });
     }
 
-    let filePath: string = "./public" + url.pathname;
-    if (url.pathname === "/") {
-      filePath = "./public/index.html";
+    const publicDir = resolve("./public");
+    const requestedPath = url.pathname === "/" ? "/index.html" : url.pathname;
+    const resolved = resolve("./public" + requestedPath);
+    if (!resolved.startsWith(publicDir + "/") && resolved !== publicDir) {
+      return new Response("Forbidden", { status: 403 });
     }
-    const file = Bun.file(filePath);
+    const file = Bun.file(resolved);
     if (await file.exists()) {
       return new Response(file);
     }
@@ -409,6 +412,11 @@ const handlePlayCard = (
       return;
     }
 
+    if (cardIndex < 0 || cardIndex >= player.hand.length) {
+      ws.send(JSON.stringify({ type: "error", message: "Invalid card index" }));
+      return;
+    }
+
     const card = player.hand[cardIndex];
     if (card && (card.type === "wild" || card.type === "plus4" || card.type === "plus20")) {
       if (!msg.chosenColor) {
@@ -471,7 +479,7 @@ const handlePlayCard = (
           JSON.stringify({
             type: "cardEffect",
             effect: "youSwapped",
-            targetPlayerId: playerId,
+            targetPlayerId: swapTargetId,
           }),
         );
       }
@@ -483,7 +491,7 @@ const handlePlayCard = (
           JSON.stringify({
             type: "cardEffect",
             effect: "swapped",
-            targetPlayerId: swapTargetId,
+            targetPlayerId: playerId,
           }),
         );
       }

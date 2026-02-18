@@ -25,6 +25,11 @@
       ⚠️ <span id="pendingCount">0</span> cards pending!
     </div>
 
+    <!-- Disconnected Player Alert -->
+    <div id="disconnectedAlert" class="pending-alert hidden" style="background: rgba(150,150,150,0.15); border-color: rgba(150,150,150,0.4);">
+      📶 Waiting for <span id="disconnectedName">player</span> to reconnect...
+    </div>
+
     <div class="piles-container">
       <!-- Draw Pile -->
       <div class="pile draw-pile">
@@ -80,7 +85,7 @@
     <div class="modal-content">
       <h2>🎉 Game Over!</h2>
       <p class="winner-text" id="winnerName"></p>
-      <button id="backToLobbyBtn" class="btn-primary">Back to Lobby</button>
+      <button id="backToLobbyBtn" class="btn btn-primary">Back to Lobby</button>
     </div>
   </div>
 
