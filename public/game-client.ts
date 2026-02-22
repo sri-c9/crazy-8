@@ -37,6 +37,9 @@ let currentGameState: GameState | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 let gameOver = false;
+let isPlayPending = false;
+let previousHandLength = 0;
+let wasYourTurn = false;
 
 // Safe WebSocket send helper
 function safeSend(data: any) {
@@ -127,6 +130,7 @@ function handleMessage(data: any) {
       break;
 
     case "state":
+      isPlayPending = false;
       currentGameState = data.gameState;
       renderGameState(data.gameState, data.yourPlayerId);
       break;
@@ -145,6 +149,11 @@ function handleMessage(data: any) {
 
     case "error":
       showError(data.message);
+      // Redirect to lobby on fatal rejoin errors (e.g. server restarted)
+      if (data.message === "Room not found" || data.message === "Player not found in room") {
+        setTimeout(() => { window.location.href = "/"; }, 2000);
+      }
+      isPlayPending = false;
       break;
 
     default:
@@ -160,6 +169,19 @@ function renderGameState(state: GameState, playerId: string) {
   const isYourTurn = state.currentPlayerId === yourPlayerId;
   const handArea = document.querySelector(".hand-area") as HTMLElement;
   handArea.classList.toggle("your-turn", isYourTurn);
+
+  // Pulse animation and toast when it first becomes your turn
+  if (isYourTurn && !wasYourTurn) {
+    handArea.classList.remove("turn-just-changed");
+    // Force reflow to restart animation if already applied
+    void (handArea as HTMLElement).offsetWidth;
+    handArea.classList.add("turn-just-changed");
+    setTimeout(() => handArea.classList.remove("turn-just-changed"), 650);
+
+    showToast("Your turn!");
+    try { navigator.vibrate([50, 30, 50]); } catch {}
+  }
+  wasYourTurn = isYourTurn;
 
   // Render opponents
   renderOpponents(state.players, state.currentPlayerId, yourPlayerId);
@@ -199,8 +221,18 @@ function renderGameState(state: GameState, playerId: string) {
   drawBtn.disabled = !isYourTurn;
   drawBtn.textContent = state.pendingDraws > 0 ? `Draw +${state.pendingDraws}` : "Draw";
 
+  // Show disconnected player indicator when it's an offline player's turn
+  const currentTurnPlayer = state.players.find((p) => p.id === state.currentPlayerId);
+  const disconnectedAlert = document.getElementById("disconnectedAlert")!;
+  if (!isYourTurn && currentTurnPlayer && !currentTurnPlayer.connected) {
+    disconnectedAlert.classList.remove("hidden");
+    document.getElementById("disconnectedName")!.textContent = currentTurnPlayer.name;
+  } else {
+    disconnectedAlert.classList.add("hidden");
+  }
+
   // Check for winner after rendering all game state (show modal on top of final board)
-  if (state.winner && !gameOver) {
+  if (state.winner) {
     if (state.winner === "__admin__") {
       showGameOver("Game ended by admin");
     } else {
@@ -291,8 +323,13 @@ function renderHand(
 
   if (hand.length === 0) {
     container.innerHTML = '<p class="empty-hand">No cards</p>';
+    previousHandLength = 0;
     return;
   }
+
+  // Newly drawn cards are appended to the end of the hand array
+  const newCardStartIndex = hand.length > previousHandLength ? previousHandLength : hand.length;
+  previousHandLength = hand.length;
 
   const count = hand.length;
   const useScrollLayout = count > 12;
@@ -314,6 +351,10 @@ function renderHand(
         cardEl.classList.add("unplayable");
       }
 
+      if (index >= newCardStartIndex) {
+        cardEl.classList.add("card-entering");
+      }
+
       cardEl.style.zIndex = index.toString();
 
       container.appendChild(cardEl);
@@ -333,6 +374,10 @@ function renderHand(
         cardEl.onclick = () => handleCardClick(index, card);
       } else {
         cardEl.classList.add("unplayable");
+      }
+
+      if (index >= newCardStartIndex) {
+        cardEl.classList.add("card-entering");
       }
 
       // Calculate fan layout positioning
@@ -481,6 +526,7 @@ function renderTopCard(card: Card, lastColor: string | null) {
 // Handle card click
 function handleCardClick(index: number, card: Card) {
   if (gameOver) return; // Don't allow interactions after game over
+  if (isPlayPending) return; // Prevent double-play while waiting for server response
 
   if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
     // Show color picker for cards that require color selection
@@ -495,6 +541,8 @@ function handleCardClick(index: number, card: Card) {
 // Play a card
 function playCard(index: number, chosenColor?: string) {
   if (!ws) return;
+
+  isPlayPending = true;
 
   // Light haptic feedback on card play
   try {
@@ -563,9 +611,9 @@ function handleCardEffect(effect: string, targetPlayerId?: string) {
     } else if (effect === "reversed") {
       navigator.vibrate?.(30) || haptic(); // Light buzz — direction changed
       showToast("Direction reversed!");
-    } else if (effect === "youSwapped") {
+    } else if (effect === "youSwapped" && targetPlayerId === yourPlayerId) {
       showToast("Hands swapped!");
-    } else if (effect === "swapped") {
+    } else if (effect === "swapped" && targetPlayerId === yourPlayerId) {
       haptic(); // Haptic feedback for being swapped
       showToast("Your hand was swapped!");
     }
@@ -580,8 +628,7 @@ function canPlayCardClient(card: Card, topCard: Card, state: GameState): boolean
   }
 
   // Wild-type cards always playable (wild, plus4, plus20 have no color restrictions)
-  // Swap is also always playable regardless of color
-  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "swap") return true;
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") return true;
 
   // Reverse limit
   if (card.type === "reverse" && state.reverseStackCount >= 4) {
@@ -599,6 +646,12 @@ function canPlayCardClient(card: Card, topCard: Card, state: GameState): boolean
 
   // Match number
   if (card.type === "number" && topCard.type === "number" && card.value === topCard.value) {
+    return true;
+  }
+
+  // Type-matching: same special card type can always be played regardless of color
+  const typeMatchable = ["skip", "reverse", "plus2", "swap", "plus20color"] as const;
+  if (card.type === topCard.type && typeMatchable.includes(card.type as typeof typeMatchable[number])) {
     return true;
   }
 
@@ -628,18 +681,30 @@ function showError(message: string) {
   showToast(`❌ ${message}`, true);
 }
 
-// Show toast notification
+// Show toast notification (latest wins — removes any existing toast first)
+let activeToast: HTMLElement | null = null;
+
 function showToast(message: string, isError: boolean = false) {
+  // Remove any currently visible toast immediately
+  if (activeToast) {
+    activeToast.remove();
+    activeToast = null;
+  }
+
   const toast = document.createElement("div");
   toast.className = `toast ${isError ? "error" : ""}`;
   toast.textContent = message;
   document.body.appendChild(toast);
+  activeToast = toast;
 
   setTimeout(() => toast.classList.add("show"), 10);
 
   setTimeout(() => {
     toast.classList.remove("show");
-    setTimeout(() => toast.remove(), 300);
+    setTimeout(() => {
+      toast.remove();
+      if (activeToast === toast) activeToast = null;
+    }, 300);
   }, 3000);
 }
 

@@ -1,4 +1,4 @@
-import type { Card, CardColor } from "./game-logic";
+import type { Card } from "./game-logic";
 import { startGame } from "./game-logic";
 
 interface Player {
@@ -21,7 +21,7 @@ interface Room {
   discardPile: Card[];
   pendingDraws: number;
   reverseStackCount: number;
-  lastPlayedColor: CardColor | null;
+  lastPlayedColor: string | null;
 }
 
 const rooms = new Map<string, Room>();
@@ -156,14 +156,8 @@ function leaveRoom(roomCode: string, playerId: string): void {
       // Player before current was removed, shift index back
       room.currentPlayerIndex--;
     } else if (removedIndex === room.currentPlayerIndex) {
-      // Current player was removed, adjust based on direction
-      if (room.direction === -1) {
-        // In reverse, adjust backward
-        room.currentPlayerIndex = (room.currentPlayerIndex - 1 + room.players.size) % room.players.size;
-      } else {
-        // In forward direction, wrap index to stay in bounds
-        room.currentPlayerIndex = room.currentPlayerIndex % room.players.size;
-      }
+      // Current player was removed, wrap index to stay in bounds
+      room.currentPlayerIndex = room.currentPlayerIndex % room.players.size;
     }
     // If removedIndex > currentPlayerIndex, no adjustment needed
   }
@@ -174,6 +168,16 @@ function disconnectPlayer(roomCode: string, playerId: string): void {
 
   if (!room) {
     return; // Silently ignore if room doesn't exist
+  }
+
+  // If the current player disconnects mid-game with a pending draw stack, clear it
+  // so the next player doesn't inherit an unfair draw obligation
+  if (room.status === GameStatus.playing && room.pendingDraws > 0) {
+    const playerKeys = Array.from(room.players.keys());
+    const disconnectingIndex = playerKeys.indexOf(playerId);
+    if (disconnectingIndex === room.currentPlayerIndex) {
+      room.pendingDraws = 0;
+    }
   }
 
   const player = room.players.get(playerId);
@@ -201,7 +205,7 @@ function getRoom(roomCode: string): Room | undefined {
   return rooms.get(roomCode);
 }
 
-interface PlayerListItem extends Omit<Player, 'hand'> {
+interface PlayerListItem extends Player {
   isHost: boolean;
 }
 
@@ -242,6 +246,14 @@ function startGameInRoom(roomCode: string, hostId: string): void {
   startGame(room);
 }
 
+function getAllRooms(): Map<string, Room> {
+  return rooms;
+}
+
+function deleteRoom(roomCode: string): void {
+  rooms.delete(roomCode);
+}
+
 export {
   createRoom,
   joinRoom,
@@ -249,6 +261,8 @@ export {
   disconnectPlayer,
   reconnectPlayer,
   getRoom,
+  getAllRooms,
+  deleteRoom,
   getRoomPlayerList,
   startGameInRoom,
   type Player,

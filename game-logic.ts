@@ -148,8 +148,7 @@ export function canPlayCard(
   }
 
   // Wild-type cards always playable (wild, plus4, plus20 have no color restrictions)
-  // Swap is also always playable regardless of color
-  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "swap") {
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
     return true;
   }
 
@@ -169,6 +168,12 @@ export function canPlayCard(
   // Match color OR number
   if (card.type === "number" && topCard.type === "number") {
     return card.color === targetColor || card.value === topCard.value;
+  }
+
+  // Type-matching: same special card type can always be played regardless of color
+  const typeMatchable = ["skip", "reverse", "plus2", "swap", "plus20color"] as const;
+  if (card.type === topCard.type && typeMatchable.includes(card.type as typeof typeMatchable[number])) {
+    return true;
   }
 
   // Match color for special cards
@@ -282,13 +287,8 @@ export function playCard(
   // Remove card from hand
   player.hand.splice(cardIndex, 1);
 
-  // Add to discard pile
-  room.discardPile.push(card);
-
-  // Trim discard pile to prevent unbounded growth (only top card matters)
-  if (room.discardPile.length > 50) {
-    room.discardPile = room.discardPile.slice(-1);
-  }
+  // Add to discard pile (keep only top card to prevent unbounded growth)
+  room.discardPile = [card];
 
   // Handle special card effects (Phase 3)
 
@@ -342,12 +342,12 @@ export function playCard(
     return; // Don't advance turn if game over
   }
 
-  // Advance turn: skip cards advance by 2 (skip 1 player), others advance by 1
+  // Advance turn: skip cards advance by 3, others advance by 1
   if (card.type === "skip") {
     const playerArray = Array.from(room.players.keys());
     const count = playerArray.length;
     room.currentPlayerIndex =
-      (room.currentPlayerIndex + 2 * room.direction + count) % count;
+      (room.currentPlayerIndex + 3 * room.direction + count) % count;
   } else {
     advanceTurn(room);
   }

@@ -6,9 +6,7 @@
   "scripts": {
     "start": "bun server.ts",
     "dev": "bun --watch server.ts",
-    "build": "bun build public/game-client.ts public/admin-client.ts --outdir public/dist --target browser",
-    "test": "npx playwright test",
-    "test:headed": "npx playwright test --headed"
+    "build": "bun build public/game-client.ts public/admin-client.ts --outdir public/dist --target browser"
   },
   "keywords": [
     "card-game",
@@ -20,10 +18,7 @@
   "license": "MIT",
   "type": "module",
   "devDependencies": {
-    "@types/bun": "^1.3.8",
-    "@playwright/test": "^1.41.0"
+    "@types/bun": "^1.3.8"
   },
-  "dependencies": {
-    "ios-haptics": "^0.1.4"
-  }
+  "dependencies": {}
 }

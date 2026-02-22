@@ -1,5 +1,5 @@
 import type { Server, ServerWebSocket } from "bun";
-import path from "path";
+import { resolve } from "path";
 import {
   createRoom,
   joinRoom,
@@ -9,6 +9,8 @@ import {
   leaveRoom,
   startGameInRoom,
   getRoom,
+  getAllRooms,
+  deleteRoom,
   GameStatus,
 } from "./room-manager";
 import {
@@ -16,7 +18,6 @@ import {
   drawCard,
   getCurrentPlayer,
   getTopCard,
-  checkWinCondition,
   advanceTurn,
   type Card,
   type CardColor,
@@ -40,11 +41,30 @@ interface IncomingMessage {
 }
 
 // Validation helpers
+const MAX_PLAYER_NAME_LENGTH = 20;
+const ROOM_CODE_REGEX = /^[A-Z]{4}$/;
+
 function validateString(value: unknown, fieldName: string): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(`${fieldName} is required and must be a non-empty string`);
   }
   return value.trim();
+}
+
+function validatePlayerName(value: unknown): string {
+  const name = validateString(value, "playerName");
+  if (name.length > MAX_PLAYER_NAME_LENGTH) {
+    throw new Error(`Player name must be ${MAX_PLAYER_NAME_LENGTH} characters or less`);
+  }
+  return name;
+}
+
+function validateRoomCode(value: unknown): string {
+  const code = validateString(value, "roomCode").toUpperCase();
+  if (!ROOM_CODE_REGEX.test(code)) {
+    throw new Error("Invalid room code format");
+  }
+  return code;
 }
 
 function validateInt(value: unknown, fieldName: string): number {
@@ -54,11 +74,101 @@ function validateInt(value: unknown, fieldName: string): number {
   return value;
 }
 
+// Sanitize error messages to avoid leaking server internals to clients
+function safeErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    const safePatterns = [
+      "is required", "characters or less", "Invalid room code",
+      "must be a non-negative integer", "Room not found", "Room is full",
+      "Game already started", "Player not found", "Not your turn",
+      "Invalid card", "Cannot play", "Must choose a color",
+      "Invalid color choice", "Not in a room", "Game is not in progress",
+      "Invalid card index", "not the host", "at least", "Unknown action",
+    ];
+    if (safePatterns.some((p) => error.message.includes(p))) {
+      return error.message;
+    }
+  }
+  return "An error occurred";
+}
+
 // Connection map to track active WebSocket connections by playerId
 const playerConnections = new Map<string, ServerWebSocket<WebSocketData>>();
 
+// Multi-tab safety: close old connection before storing new one
+function replacePlayerConnection(playerId: string, newWs: ServerWebSocket<WebSocketData>) {
+  const oldWs = playerConnections.get(playerId);
+  if (oldWs && oldWs !== newWs) {
+    try {
+      oldWs.close(1000, "Replaced by new connection");
+    } catch {
+      // Old connection may already be closed
+    }
+  }
+  playerConnections.set(playerId, newWs);
+}
+
+// Disconnect timer maps
+const turnSkipTimers = new Map<string, Timer>(); // 30s: auto-skip disconnected player's turn
+const leaveTimers = new Map<string, Timer>(); // 2min: formally remove player from room
+
+// Track disconnect metadata for timers (roomCode needed when timer fires)
+const disconnectInfo = new Map<string, { roomCode: string }>();
+
+// Rate limiting: sliding window tracking per connection
+const MSG_RATE_LIMIT = 20; // max messages per second
+const MSG_RATE_WINDOW = 1000; // 1 second window
+const ROOM_CREATE_LIMIT = 5; // max room creates per minute
+const ROOM_CREATE_WINDOW = 60_000; // 1 minute window
+
+interface RateLimitState {
+  messageTimestamps: number[];
+  createTimestamps: number[];
+}
+
+const rateLimitState = new WeakMap<ServerWebSocket<WebSocketData>, RateLimitState>();
+
+function getRateLimitState(ws: ServerWebSocket<WebSocketData>): RateLimitState {
+  let state = rateLimitState.get(ws);
+  if (!state) {
+    state = { messageTimestamps: [], createTimestamps: [] };
+    rateLimitState.set(ws, state);
+  }
+  return state;
+}
+
+function isMessageRateLimited(ws: ServerWebSocket<WebSocketData>): boolean {
+  const state = getRateLimitState(ws);
+  const now = Date.now();
+  // Prune old timestamps
+  state.messageTimestamps = state.messageTimestamps.filter(
+    (t) => now - t < MSG_RATE_WINDOW,
+  );
+  if (state.messageTimestamps.length >= MSG_RATE_LIMIT) {
+    return true;
+  }
+  state.messageTimestamps.push(now);
+  return false;
+}
+
+function isCreateRateLimited(ws: ServerWebSocket<WebSocketData>): boolean {
+  const state = getRateLimitState(ws);
+  const now = Date.now();
+  // Prune old timestamps
+  state.createTimestamps = state.createTimestamps.filter(
+    (t) => now - t < ROOM_CREATE_WINDOW,
+  );
+  if (state.createTimestamps.length >= ROOM_CREATE_LIMIT) {
+    return true;
+  }
+  state.createTimestamps.push(now);
+  return false;
+}
+
+const PORT = parseInt(Bun.env.PORT ?? "3000", 10);
+
 const server = Bun.serve<WebSocketData>({
-  port: 3000,
+  port: PORT,
 
   async fetch(
     req: Request,
@@ -80,17 +190,23 @@ const server = Bun.serve<WebSocketData>({
       return new Response("Websocket upgrade failed", { status: 500 });
     }
 
-    // Prevent path traversal attacks
-    const publicDir = path.resolve("./public");
-    let requestedPath = url.pathname === "/" ? "/index.html" : url.pathname;
-    const resolvedPath = path.resolve(publicDir, "." + requestedPath);
-
-    // Verify the resolved path is within the public directory
-    if (!resolvedPath.startsWith(publicDir)) {
+    const publicDir = resolve("./public");
+    const requestedPath = url.pathname === "/" ? "/index.html" : url.pathname;
+    const resolved = resolve("./public" + requestedPath);
+    if (!resolved.startsWith(publicDir + "/") && resolved !== publicDir) {
       return new Response("Forbidden", { status: 403 });
     }
 
-    const file = Bun.file(resolvedPath);
+    // Gate admin panel behind a secret key
+    if (requestedPath === "/admin.html" || requestedPath === "/admin-client.js" || requestedPath === "/dist/admin-client.js") {
+      const key = url.searchParams.get("key");
+      const adminKey = Bun.env.ADMIN_KEY ?? "dev-admin-2024";
+      if (key !== adminKey) {
+        return new Response("Forbidden", { status: 403 });
+      }
+    }
+
+    const file = Bun.file(resolved);
     if (await file.exists()) {
       return new Response(file);
     }
@@ -104,6 +220,20 @@ const server = Bun.serve<WebSocketData>({
     },
 
     message(ws: ServerWebSocket<WebSocketData>, message: string) {
+      // 2A-1: Max message size (4KB)
+      if (message.length > 4096) {
+        ws.send(JSON.stringify({ type: "error", message: "Message too large" }));
+        return;
+      }
+
+      // Rate limit: reject if >20 messages/sec
+      if (isMessageRateLimited(ws)) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Rate limited: too many messages" }),
+        );
+        return;
+      }
+
       console.log("WebSocket message recieved: ", message);
 
       try {
@@ -133,49 +263,29 @@ const server = Bun.serve<WebSocketData>({
             );
         }
       } catch (error) {
+        console.error("Message handler error:", error);
         ws.send(
-          JSON.stringify({ type: "error", message: (error as Error).message }),
+          JSON.stringify({ type: "error", message: "Invalid request" }),
         );
       }
     },
 
     close(ws: ServerWebSocket<WebSocketData>) {
       if (ws.data.roomCode && ws.data.playerId) {
-        const roomCode = ws.data.roomCode;
-        const playerId = ws.data.playerId;
+        const { roomCode, playerId } = ws.data;
+
+        ws.unsubscribe(roomCode);
+
+        // If a newer connection replaced this one, don't run disconnect logic
+        if (playerConnections.get(playerId) !== ws) {
+          return;
+        }
 
         disconnectPlayer(roomCode, playerId);
-        ws.unsubscribe(roomCode);
         playerConnections.delete(playerId);
 
-        const room = getRoom(roomCode);
-        if (!room) return;
-
-        // If game is playing and disconnected player was current, advance turn
-        if (room.status === GameStatus.playing) {
-          const currentPlayerId = getCurrentPlayer(room);
-          if (currentPlayerId === playerId) {
-            // Auto-draw if pending draws, otherwise advance turn
-            if (room.pendingDraws > 0) {
-              try {
-                drawCard(room, playerId);
-              } catch {
-                // Ignore errors (player already disconnected)
-              }
-            } else {
-              advanceTurn(room);
-            }
-          }
-
-          // Check if only 1 player left (game over)
-          if (room.players.size === 1) {
-            const winnerId = Array.from(room.players.keys())[0];
-            broadcastGameState(roomCode, winnerId);
-          } else {
-            // Broadcast updated game state
-            broadcastGameState(roomCode);
-          }
-        }
+        // Store disconnect info for timer callbacks
+        disconnectInfo.set(playerId, { roomCode });
 
         // Broadcast updated player list
         server.publish(
@@ -185,6 +295,81 @@ const server = Bun.serve<WebSocketData>({
             players: getRoomPlayerList(roomCode),
           }),
         );
+
+        // 1B: 30s timer — auto-skip turn if it's this player's turn
+        const skipTimer = setTimeout(() => {
+          turnSkipTimers.delete(playerId);
+
+          const room = getRoom(roomCode);
+          if (!room) return;
+          if (room.status !== GameStatus.playing) return;
+
+          const player = room.players.get(playerId);
+          if (!player || player.connected) return; // reconnected
+
+          // If it's this player's turn, advance
+          const currentPlayerId = getCurrentPlayer(room);
+          if (currentPlayerId === playerId) {
+            // Clear any pending draws before skipping
+            room.pendingDraws = 0;
+            advanceTurn(room);
+            broadcastGameState(roomCode);
+          }
+        }, 30_000);
+        turnSkipTimers.set(playerId, skipTimer);
+
+        // 1C: 2min timer — formally remove player from room
+        const leaveTimer = setTimeout(() => {
+          leaveTimers.delete(playerId);
+          disconnectInfo.delete(playerId);
+
+          const room = getRoom(roomCode);
+          if (!room) return;
+
+          const player = room.players.get(playerId);
+          if (!player || player.connected) return; // reconnected
+
+          // Check if it's their turn before removing (advance first)
+          if (room.status === GameStatus.playing) {
+            const currentPlayerId = getCurrentPlayer(room);
+            if (currentPlayerId === playerId) {
+              room.pendingDraws = 0;
+              advanceTurn(room);
+            }
+          }
+
+          try {
+            leaveRoom(roomCode, playerId);
+          } catch {
+            return; // Room may already be gone
+          }
+
+          // Room may have been deleted if it was the last player
+          const updatedRoom = getRoom(roomCode);
+          if (!updatedRoom) return;
+
+          // Broadcast updated player list
+          server.publish(
+            roomCode,
+            JSON.stringify({
+              type: "playerList",
+              players: getRoomPlayerList(roomCode),
+            }),
+          );
+
+          // If only 1 player left in an active game, end it
+          if (updatedRoom.status === GameStatus.playing && updatedRoom.players.size <= 1) {
+            updatedRoom.status = GameStatus.finished;
+            const winnerId = updatedRoom.players.size === 1
+              ? Array.from(updatedRoom.players.keys())[0]
+              : null;
+            broadcastGameState(roomCode, winnerId);
+          } else if (updatedRoom.status === GameStatus.playing) {
+            // Broadcast state so remaining players see updated turn
+            broadcastGameState(roomCode);
+          }
+        }, 120_000);
+        leaveTimers.set(playerId, leaveTimer);
       }
     },
   },
@@ -195,7 +380,15 @@ const handleCreate = (
   msg: IncomingMessage,
 ) => {
   try {
-    const playerName = validateString(msg.playerName, "playerName");
+    // Rate limit: reject if >5 room creates/min
+    if (isCreateRateLimited(ws)) {
+      ws.send(
+        JSON.stringify({ type: "error", message: "Rate limited: too many room creations" }),
+      );
+      return;
+    }
+
+    const playerName = validatePlayerName(msg.playerName);
     const avatar = validateString(msg.avatar, "avatar");
 
     const { roomCode, playerId } = createRoom(playerName, avatar);
@@ -206,7 +399,7 @@ const handleCreate = (
     ws.data.roomCode = roomCode;
 
     ws.subscribe(roomCode);
-    playerConnections.set(playerId, ws);
+    replacePlayerConnection(playerId, ws);
 
     ws.send(
       JSON.stringify({
@@ -224,10 +417,11 @@ const handleCreate = (
       }),
     );
   } catch (error) {
+    console.error("Create room error:", error);
     ws.send(
       JSON.stringify({
         type: "error",
-        message: (error as Error).message,
+        message: "Failed to create room",
       }),
     );
   }
@@ -239,8 +433,14 @@ const handleJoin = (
 ) => {
   try {
     const roomCode = validateString(msg.roomCode, "roomCode").toUpperCase();
-    const playerName = validateString(msg.playerName, "playerName");
+    const playerName = validateString(msg.playerName, "playerName").slice(0, 20);
     const avatar = validateString(msg.avatar, "avatar");
+
+    // 2A-3: Validate room code format
+    if (!/^[A-Z0-9]{4}$/.test(roomCode)) {
+      ws.send(JSON.stringify({ type: "error", message: "Invalid room code" }));
+      return;
+    }
 
     const { playerId } = joinRoom(roomCode, playerName, avatar);
 
@@ -250,7 +450,7 @@ const handleJoin = (
     ws.data.roomCode = roomCode;
 
     ws.subscribe(roomCode);
-    playerConnections.set(playerId, ws);
+    replacePlayerConnection(playerId, ws);
 
     ws.send(
       JSON.stringify({
@@ -268,10 +468,11 @@ const handleJoin = (
       }),
     );
   } catch (error) {
+    console.error("Join room error:", error);
     ws.send(
       JSON.stringify({
         type: "error",
-        message: (error as Error).message,
+        message: "Failed to join room",
       }),
     );
   }
@@ -284,6 +485,19 @@ const handleRejoin = (
   try {
     const roomCode = validateString(msg.roomCode, "roomCode").toUpperCase();
     const playerId = validateString(msg.playerId, "playerId");
+
+    // Cancel disconnect timers
+    const skipTimer = turnSkipTimers.get(playerId);
+    if (skipTimer) {
+      clearTimeout(skipTimer);
+      turnSkipTimers.delete(playerId);
+    }
+    const leaveTimer = leaveTimers.get(playerId);
+    if (leaveTimer) {
+      clearTimeout(leaveTimer);
+      leaveTimers.delete(playerId);
+    }
+    disconnectInfo.delete(playerId);
 
     // Reconnect the player
     reconnectPlayer(roomCode, playerId);
@@ -307,20 +521,9 @@ const handleRejoin = (
     ws.data.avatar = player.avatar;
     ws.data.roomCode = roomCode;
 
-    // Clean up old WebSocket if player is rejoining
-    const existingWs = playerConnections.get(playerId);
-    if (existingWs && existingWs !== ws) {
-      try {
-        existingWs.unsubscribe(roomCode);
-        existingWs.close();
-      } catch {
-        // Ignore errors from closing stale connections
-      }
-    }
-
     // Subscribe to room
     ws.subscribe(roomCode);
-    playerConnections.set(playerId, ws);
+    replacePlayerConnection(playerId, ws);
 
     // Send rejoined confirmation
     ws.send(
@@ -345,10 +548,11 @@ const handleRejoin = (
       broadcastGameState(roomCode);
     }
   } catch (error) {
+    console.error("Rejoin error:", error);
     ws.send(
       JSON.stringify({
         type: "error",
-        message: (error as Error).message,
+        message: "Failed to rejoin room",
       }),
     );
   }
@@ -418,10 +622,11 @@ const handleStartGame = (ws: ServerWebSocket<WebSocketData>) => {
     // Broadcast initial game state
     broadcastGameState(roomCode);
   } catch (error) {
+    console.error("Start game error:", error);
     ws.send(
       JSON.stringify({
         type: "error",
-        message: (error as Error).message,
+        message: "Failed to start game",
       }),
     );
   }
@@ -461,13 +666,13 @@ const handlePlayCard = (
       return;
     }
 
-    const card = player.hand[cardIndex];
-    if (!card) {
+    if (cardIndex < 0 || cardIndex >= player.hand.length) {
       ws.send(JSON.stringify({ type: "error", message: "Invalid card index" }));
       return;
     }
 
-    if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
+    const card = player.hand[cardIndex];
+    if (card && (card.type === "wild" || card.type === "plus4" || card.type === "plus20")) {
       if (!msg.chosenColor) {
         ws.send(JSON.stringify({ type: "error", message: "Must choose a color for this card" }));
         return;
@@ -491,11 +696,12 @@ const handlePlayCard = (
     }
 
     if (card.type === "skip") {
-      // Skip advances by 2 (skips 1 player)
+      // Skip advances by 3 (skips 2 players)
       const playerArray = Array.from(room.players.keys());
       const count = playerArray.length;
-      const skippedIndex = (room.currentPlayerIndex + room.direction + count) % count;
-      skippedPlayerIds = [playerArray[skippedIndex]];
+      const skippedIndex1 = (room.currentPlayerIndex + room.direction + count) % count;
+      const skippedIndex2 = (room.currentPlayerIndex + 2 * room.direction + count) % count;
+      skippedPlayerIds = [playerArray[skippedIndex1], playerArray[skippedIndex2]];
     }
 
     playCard(room, playerId, cardIndex, msg.chosenColor);
@@ -545,16 +751,18 @@ const handlePlayCard = (
       }
     }
 
-    // Check for winner
-    const winner = checkWinCondition(room);
+    // Determine winner — playCard() already sets room.status to finished
+    // when a player empties their hand, so just check status here.
+    const winner = room.status === GameStatus.finished ? playerId : null;
 
     // Broadcast updated state
     broadcastGameState(roomCode, winner);
   } catch (error) {
+    console.error("Play card error:", error);
     ws.send(
       JSON.stringify({
         type: "error",
-        message: (error as Error).message,
+        message: "Invalid play",
       }),
     );
   }
@@ -582,9 +790,6 @@ const handleDrawCard = (ws: ServerWebSocket<WebSocketData>) => {
       return;
     }
 
-    // Capture whether this is a forced draw before drawing
-    const wasForcedDraw = room.pendingDraws > 0;
-
     const drawnCards = drawCard(room, playerId);
 
     // Send drawn cards to player (direct message)
@@ -592,20 +797,64 @@ const handleDrawCard = (ws: ServerWebSocket<WebSocketData>) => {
       JSON.stringify({
         type: "cardDrawn",
         cards: drawnCards,
-        forced: wasForcedDraw,
+        forced: drawnCards.length > 1, // True if plus-stack forced draw
       }),
     );
 
     // Broadcast updated state (hide drawn cards from others)
     broadcastGameState(roomCode);
   } catch (error) {
+    console.error("Draw card error:", error);
     ws.send(
       JSON.stringify({
         type: "error",
-        message: (error as Error).message,
+        message: "Failed to draw card",
       }),
     );
   }
 };
+
+// 1C: Periodic room cleanup — every 5 minutes, sweep rooms where ALL players
+// have been disconnected for >5 minutes
+const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const STALE_DISCONNECT_THRESHOLD = 5 * 60 * 1000; // 5 minutes
+
+setInterval(() => {
+  const now = Date.now();
+  const rooms = getAllRooms();
+
+  for (const [roomCode, room] of Array.from(rooms.entries())) {
+    const allDisconnected = Array.from(room.players.values()).every(
+      (p) => !p.connected,
+    );
+
+    if (!allDisconnected) continue;
+
+    // Safety net: if room is old enough and everyone is disconnected, clean it up.
+    // The 2-min leave timers handle individual removal, but this sweep catches
+    // rooms where timers may have misfired or all players disconnected in waiting state.
+    const roomAge = now - room.createdAt;
+    if (roomAge > STALE_DISCONNECT_THRESHOLD) {
+      // Clean up any remaining timers for players in this room
+      const playerIds = Array.from(room.players.keys());
+      for (const playerId of playerIds) {
+        const skipTimer = turnSkipTimers.get(playerId);
+        if (skipTimer) {
+          clearTimeout(skipTimer);
+          turnSkipTimers.delete(playerId);
+        }
+        const leaveTimer = leaveTimers.get(playerId);
+        if (leaveTimer) {
+          clearTimeout(leaveTimer);
+          leaveTimers.delete(playerId);
+        }
+        disconnectInfo.delete(playerId);
+        playerConnections.delete(playerId);
+      }
+      deleteRoom(roomCode);
+      console.log(`Cleaned up stale room ${roomCode}`);
+    }
+  }
+}, CLEANUP_INTERVAL);
 
 console.log(`Server running on http://localhost:${server.port}`);
