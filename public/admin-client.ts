@@ -205,38 +205,51 @@ function togglePower(power: string) {
   sendAction("adminTogglePower", { power });
 }
 
+// Helper to create an element with optional class, text, and attributes
+function el(tag: string, opts?: { className?: string; text?: string; attrs?: Record<string, string> }): HTMLElement {
+  const elem = document.createElement(tag);
+  if (opts?.className) elem.className = opts.className;
+  if (opts?.text) elem.textContent = opts.text;
+  if (opts?.attrs) {
+    for (const [k, v] of Object.entries(opts.attrs)) elem.setAttribute(k, v);
+  }
+  return elem;
+}
+
 // Render functions
 function renderRoomList(rooms: any[]) {
+  elements.roomsList.innerHTML = "";
+
   if (rooms.length === 0) {
-    elements.roomsList.innerHTML = '<p class="empty-state">No active rooms</p>';
+    const p = el("p", { className: "empty-state", text: "No active rooms" });
+    elements.roomsList.appendChild(p);
     return;
   }
 
-  elements.roomsList.innerHTML = rooms.map(room => {
+  for (const room of rooms) {
     const isWatching = room.roomCode === watchingRoomCode;
     const avatars = room.players.map((p: any) => p.avatar).join(" ");
 
-    return `
-      <div class="room-card ${isWatching ? 'watching' : ''}" data-room-code="${room.roomCode}">
-        <div class="room-card-left">
-          <span class="room-card-code">${room.roomCode}</span>
-          <span class="room-card-status ${room.gameStatus}">${room.gameStatus}</span>
-        </div>
-        <div class="room-card-right">
-          <span class="room-card-players">${room.playerCount} players</span>
-          <span class="room-card-avatars">${avatars}</span>
-        </div>
-      </div>
-    `;
-  }).join("");
+    const card = el("div", { className: `room-card ${isWatching ? "watching" : ""}`, attrs: { "data-room-code": room.roomCode } });
 
-  // Add click handlers
-  document.querySelectorAll(".room-card").forEach(card => {
+    const left = el("div", { className: "room-card-left" });
+    left.appendChild(el("span", { className: "room-card-code", text: room.roomCode }));
+    left.appendChild(el("span", { className: `room-card-status ${room.gameStatus}`, text: room.gameStatus }));
+
+    const right = el("div", { className: "room-card-right" });
+    right.appendChild(el("span", { className: "room-card-players", text: `${room.playerCount} players` }));
+    right.appendChild(el("span", { className: "room-card-avatars", text: avatars }));
+
+    card.appendChild(left);
+    card.appendChild(right);
+
     card.addEventListener("click", () => {
       const roomCode = card.getAttribute("data-room-code");
       if (roomCode) watchRoom(roomCode);
     });
-  });
+
+    elements.roomsList.appendChild(card);
+  }
 }
 
 function renderRoomState(room: any) {
@@ -279,79 +292,93 @@ function renderRoomState(room: any) {
 }
 
 function renderPlayers(players: any[], currentPlayerId: string | null) {
-  elements.playersGrid.innerHTML = players.map(player => {
+  elements.playersGrid.innerHTML = "";
+
+  for (const player of players) {
     const isCurrent = player.id === currentPlayerId;
     const isDisconnected = !player.connected;
 
-    return `
-      <div class="player-card ${isCurrent ? 'current-turn' : ''} ${isDisconnected ? 'disconnected' : ''}">
-        <div class="player-avatar">${player.avatar}</div>
-        <div class="player-info">
-          <div class="player-name">${player.name}</div>
-          <div class="player-meta">
-            ${player.isHost ? '<span class="host-badge">👑 Host</span>' : ''}
-            <span class="card-count">${player.cardCount} cards</span>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join("");
+    const card = el("div", { className: `player-card ${isCurrent ? "current-turn" : ""} ${isDisconnected ? "disconnected" : ""}` });
+    card.appendChild(el("div", { className: "player-avatar", text: player.avatar }));
+
+    const info = el("div", { className: "player-info" });
+    info.appendChild(el("div", { className: "player-name", text: player.name }));
+
+    const meta = el("div", { className: "player-meta" });
+    if (player.isHost) {
+      meta.appendChild(el("span", { className: "host-badge", text: "\u{1F451} Host" }));
+    }
+    meta.appendChild(el("span", { className: "card-count", text: `${player.cardCount} cards` }));
+    info.appendChild(meta);
+
+    card.appendChild(info);
+    elements.playersGrid.appendChild(card);
+  }
+}
+
+function populatePlayerSelect(select: HTMLSelectElement, players: any[]) {
+  select.innerHTML = "";
+  const defaultOpt = document.createElement("option");
+  defaultOpt.value = "";
+  defaultOpt.textContent = "Select player...";
+  select.appendChild(defaultOpt);
+
+  for (const p of players) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = `${p.avatar} ${p.name}`;
+    select.appendChild(opt);
+  }
 }
 
 function updatePlayerDropdowns(players: any[]) {
-  const playerOptions = players.map(p =>
-    `<option value="${p.id}">${p.avatar} ${p.name}</option>`
-  ).join("");
-
-  elements.giveCardPlayer.innerHTML = '<option value="">Select player...</option>' + playerOptions;
-  elements.forceDrawPlayer.innerHTML = '<option value="">Select player...</option>' + playerOptions;
-  elements.setPlayerSelect.innerHTML = '<option value="">Select player...</option>' + playerOptions;
-  elements.kickPlayerSelect.innerHTML = '<option value="">Select player...</option>' + playerOptions;
+  populatePlayerSelect(elements.giveCardPlayer, players);
+  populatePlayerSelect(elements.forceDrawPlayer, players);
+  populatePlayerSelect(elements.setPlayerSelect, players);
+  populatePlayerSelect(elements.kickPlayerSelect, players);
 }
 
 function renderAllHands(hands: Record<string, any[]>) {
   if (!currentRoomState) return;
 
-  elements.allHandsContainer.innerHTML = Object.entries(hands).map(([playerId, cards]) => {
+  elements.allHandsContainer.innerHTML = "";
+
+  for (const [playerId, cards] of Object.entries(hands)) {
     const player = currentRoomState.players.find((p: any) => p.id === playerId);
-    if (!player) return "";
+    if (!player) continue;
 
-    return `
-      <div class="hand-row">
-        <div class="hand-header">
-          <span>${player.avatar} ${player.name}</span>
-          <span style="color: #666;">(${cards.length} cards)</span>
-        </div>
-        <div class="hand-cards">
-          ${cards.map((card, idx) => renderMiniCard(card, playerId, idx)).join("")}
-        </div>
-      </div>
-    `;
-  }).join("");
+    const row = el("div", { className: "hand-row" });
 
-  // Add remove card handlers
-  document.querySelectorAll(".remove-btn").forEach(btn => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const playerId = btn.getAttribute("data-player-id");
-      const cardIndex = parseInt(btn.getAttribute("data-card-index") || "0");
-      if (playerId) {
-        sendAction("adminRemoveCard", { playerId, cardIndex });
-      }
+    const header = el("div", { className: "hand-header" });
+    header.appendChild(el("span", { text: `${player.avatar} ${player.name}` }));
+    header.appendChild(el("span", { text: `(${cards.length} cards)`, attrs: { style: "color: #666;" } }));
+    row.appendChild(header);
+
+    const cardsContainer = el("div", { className: "hand-cards" });
+    cards.forEach((card, idx) => {
+      cardsContainer.appendChild(renderMiniCard(card, playerId, idx));
     });
-  });
+    row.appendChild(cardsContainer);
+
+    elements.allHandsContainer.appendChild(row);
+  }
 }
 
-function renderMiniCard(card: any, playerId: string, cardIndex: number): string {
+function renderMiniCard(card: any, playerId: string, cardIndex: number): HTMLElement {
   const colorClass = getCardColorClass(card);
   const cardText = cardToString(card);
 
-  return `
-    <div class="mini-card ${colorClass}">
-      ${cardText}
-      <button class="remove-btn" data-player-id="${playerId}" data-card-index="${cardIndex}">×</button>
-    </div>
-  `;
+  const miniCard = el("div", { className: `mini-card ${colorClass}` });
+  miniCard.appendChild(document.createTextNode(cardText));
+
+  const removeBtn = el("button", { className: "remove-btn", text: "\u00d7", attrs: { "data-player-id": playerId, "data-card-index": String(cardIndex) } });
+  removeBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    sendAction("adminRemoveCard", { playerId, cardIndex });
+  });
+  miniCard.appendChild(removeBtn);
+
+  return miniCard;
 }
 
 function getCardColorClass(card: any): string {
@@ -385,7 +412,9 @@ function logAction(message: string, type: "success" | "error" | "info" = "info")
   const time = new Date().toLocaleTimeString();
   const entry = document.createElement("div");
   entry.className = `log-entry ${type}`;
-  entry.innerHTML = `<span class="log-time">${time}</span>${message}`;
+  const timeSpan = el("span", { className: "log-time", text: time });
+  entry.appendChild(timeSpan);
+  entry.appendChild(document.createTextNode(message));
   elements.actionLog.prepend(entry);
 
   // Keep only last 50 entries

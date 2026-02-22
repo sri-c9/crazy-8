@@ -246,6 +246,14 @@ function startGameInRoom(roomCode: string, hostId: string): void {
   startGame(room);
 }
 
+function getAllRooms(): Map<string, Room> {
+  return rooms;
+}
+
+function deleteRoom(roomCode: string): void {
+  rooms.delete(roomCode);
+}
+
 export {
   createRoom,
   joinRoom,
@@ -253,6 +261,8 @@ export {
   disconnectPlayer,
   reconnectPlayer,
   getRoom,
+  getAllRooms,
+  deleteRoom,
   getRoomPlayerList,
   startGameInRoom,
   type Player,

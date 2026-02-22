@@ -287,8 +287,8 @@ export function playCard(
   // Remove card from hand
   player.hand.splice(cardIndex, 1);
 
-  // Add to discard pile
-  room.discardPile.push(card);
+  // Add to discard pile (keep only top card to prevent unbounded growth)
+  room.discardPile = [card];
 
   // Handle special card effects (Phase 3)
 
@@ -348,9 +348,6 @@ export function playCard(
     const count = playerArray.length;
     room.currentPlayerIndex =
       (room.currentPlayerIndex + 3 * room.direction + count) % count;
-  } else if (card.type === "reverse" && room.players.size === 2) {
-    // In a 2-player game, Reverse acts as Skip: direction already flipped above,
-    // so no turn advance — the same player plays again
   } else {
     advanceTurn(room);
   }
