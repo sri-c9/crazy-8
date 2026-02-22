@@ -218,7 +218,7 @@ function renderGameState(state: GameState, playerId: string) {
 
   // Enable/disable draw button based on turn
   const drawBtn = document.getElementById("drawBtn") as HTMLButtonElement;
-  drawBtn.disabled = !isYourTurn;
+  drawBtn.disabled = !isYourTurn || isPlayPending;
   drawBtn.textContent = state.pendingDraws > 0 ? `Draw +${state.pendingDraws}` : "Draw";
 
   // Show disconnected player indicator when it's an offline player's turn
@@ -564,7 +564,9 @@ function playCard(index: number, chosenColor?: string) {
 function drawCards() {
   if (!ws) return;
   if (gameOver) return; // Don't allow interactions after game over
+  if (isPlayPending) return; // Prevent double-draw
 
+  isPlayPending = true;
   safeSend({
     action: "draw",
   });
@@ -672,6 +674,7 @@ function hideColorPicker() {
 // Show game over
 function showGameOver(winnerName: string) {
   gameOver = true; // Lock the game board
+  hideColorPicker(); // Dismiss any open wild card color picker
   document.getElementById("winnerName")!.textContent = winnerName;
   document.getElementById("gameOver")!.classList.remove("hidden");
 }
