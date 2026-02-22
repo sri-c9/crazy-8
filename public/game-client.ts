@@ -81,10 +81,12 @@ function connectWebSocket() {
     hideLoading();
 
     // Identify ourselves to the server
+    const sessionToken = sessionStorage.getItem("crazy8_sessionToken") || "";
     ws!.send(JSON.stringify({
       action: "rejoin",
       roomCode: roomCode,
       playerId: yourPlayerId,
+      sessionToken,
     }));
   };
 
@@ -150,7 +152,7 @@ function handleMessage(data: any) {
     case "error":
       showError(data.message);
       // Redirect to lobby on fatal rejoin errors (e.g. server restarted)
-      if (data.message === "Room not found" || data.message === "Player not found in room") {
+      if (data.message === "Room not found" || data.message === "Player not found in room" || data.message === "Invalid session") {
         setTimeout(() => { window.location.href = "/"; }, 2000);
       }
       isPlayPending = false;

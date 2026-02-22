@@ -36,6 +36,7 @@ interface IncomingMessage {
   avatar?: string;
   roomCode?: string;
   playerId?: string;
+  sessionToken?: string;
   cardIndex?: number;
   chosenColor?: CardColor;
 }
@@ -84,7 +85,7 @@ function safeErrorMessage(error: unknown): string {
       "Invalid card", "Cannot play", "Must choose a color",
       "Invalid color choice", "Not in a room", "Game is not in progress",
       "Invalid card index", "not the host", "at least", "Unknown action",
-      "You are disconnected",
+      "You are disconnected", "Invalid session",
     ];
     if (safePatterns.some((p) => error.message.includes(p))) {
       return error.message;
@@ -392,7 +393,7 @@ const handleCreate = (
     const playerName = validatePlayerName(msg.playerName);
     const avatar = validateString(msg.avatar, "avatar");
 
-    const { roomCode, playerId } = createRoom(playerName, avatar);
+    const { roomCode, playerId, sessionToken } = createRoom(playerName, avatar);
 
     ws.data.playerId = playerId;
     ws.data.playerName = playerName;
@@ -407,6 +408,7 @@ const handleCreate = (
         type: "roomCreated",
         roomCode,
         playerId,
+        sessionToken: sessionToken,
       }),
     );
 
@@ -437,7 +439,7 @@ const handleJoin = (
     const playerName = validatePlayerName(msg.playerName);
     const avatar = validateString(msg.avatar, "avatar");
 
-    const { playerId } = joinRoom(roomCode, playerName, avatar);
+    const { playerId, sessionToken } = joinRoom(roomCode, playerName, avatar);
 
     ws.data.playerId = playerId;
     ws.data.playerName = playerName;
@@ -452,6 +454,7 @@ const handleJoin = (
         type: "joined",
         roomCode: roomCode,
         playerId: playerId,
+        sessionToken: sessionToken,
       }),
     );
 
@@ -507,6 +510,13 @@ const handleRejoin = (
     const player = room.players.get(playerId);
     if (!player) {
       ws.send(JSON.stringify({ type: "error", message: "Player not found" }));
+      return;
+    }
+
+    // Validate session token to prevent impersonation
+    const token = typeof msg.sessionToken === "string" ? msg.sessionToken : "";
+    if (player.sessionToken !== token) {
+      ws.send(JSON.stringify({ type: "error", message: "Invalid session" }));
       return;
     }
 
