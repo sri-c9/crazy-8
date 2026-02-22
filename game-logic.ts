@@ -330,8 +330,10 @@ export function playCard(
 
   // Update lastPlayedColor for all card types
   if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
-    // Wild-type cards: use chosenColor, fall back to random (defense-in-depth)
-    room.lastPlayedColor = chosenColor || randomColor();
+    if (!chosenColor) {
+      throw new Error("Must choose a color");
+    }
+    room.lastPlayedColor = chosenColor;
   } else if ("color" in card) {
     room.lastPlayedColor = card.color;
   }
@@ -382,6 +384,9 @@ export function drawCard(room: Room, playerId: string): Card[] {
     player.hand.push(card);
     drawnCards.push(card);
   }
+
+  // Reset reverse stack on draw (drawing breaks the chain)
+  room.reverseStackCount = 0;
 
   // Advance turn after drawing
   advanceTurn(room);
