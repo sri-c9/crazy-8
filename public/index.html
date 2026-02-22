@@ -21,6 +21,15 @@
       <span id="connectionStatus">Connecting</span>
     </div>
 
+    <!-- Rejoin Prompt (hidden by default) -->
+    <div class="section hidden" id="rejoinSection" style="text-align:center; padding: 1rem;">
+      <p>You were in room <strong id="rejoinRoomCode"></strong></p>
+      <div class="actions" style="margin-top: 0.5rem;">
+        <button class="btn btn-primary" id="rejoinBtn">Rejoin</button>
+        <button class="btn btn-secondary" id="rejoinDismissBtn">Start Fresh</button>
+      </div>
+    </div>
+
     <!-- Player Setup -->
     <div class="section section-visible" id="setupSection">
       <h2>Player Setup</h2>
@@ -107,6 +116,32 @@
       }
     }
 
+    // Session persistence helpers
+    function saveSession(roomCode, playerId, playerName, avatar) {
+      sessionStorage.setItem('crazy8_roomCode', roomCode);
+      sessionStorage.setItem('crazy8_playerId', playerId);
+      sessionStorage.setItem('crazy8_playerName', playerName);
+      sessionStorage.setItem('crazy8_avatar', avatar);
+    }
+
+    function clearSession() {
+      sessionStorage.removeItem('crazy8_roomCode');
+      sessionStorage.removeItem('crazy8_playerId');
+      sessionStorage.removeItem('crazy8_playerName');
+      sessionStorage.removeItem('crazy8_avatar');
+    }
+
+    function getSavedSession() {
+      const roomCode = sessionStorage.getItem('crazy8_roomCode');
+      const playerId = sessionStorage.getItem('crazy8_playerId');
+      const playerName = sessionStorage.getItem('crazy8_playerName');
+      const avatar = sessionStorage.getItem('crazy8_avatar');
+      if (roomCode && playerId && playerName && avatar) {
+        return { roomCode, playerId, playerName, avatar };
+      }
+      return null;
+    }
+
     // DOM elements
     const statusEl = document.getElementById("connectionStatus");
     const statusDot = document.getElementById("statusDot");
@@ -123,6 +158,13 @@
     const toastMessageEl = document.getElementById("toastMessage");
     const avatarBtns = document.querySelectorAll(".avatar-btn");
     const copyCodeBtn = document.getElementById("copyCodeBtn");
+
+    // Rejoin UI elements
+    const rejoinSection = document.getElementById("rejoinSection");
+    const rejoinRoomCodeEl = document.getElementById("rejoinRoomCode");
+    const rejoinBtn = document.getElementById("rejoinBtn");
+    const rejoinDismissBtn = document.getElementById("rejoinDismissBtn");
+    let pendingRejoinSession = null;
 
     // Initialize WebSocket
     function connectWebSocket() {
@@ -182,12 +224,14 @@
           currentRoomCode = data.roomCode;
           currentPlayerId = data.playerId;
           isHost = true;  // Creator is always host
+          saveSession(data.roomCode, data.playerId, playerNameInput.value.trim(), selectedAvatar);
           showRoom(data.roomCode);
           break;
 
         case "joined":
           currentRoomCode = data.roomCode;
           currentPlayerId = data.playerId;
+          saveSession(data.roomCode, data.playerId, playerNameInput.value.trim(), selectedAvatar);
           showRoom(data.roomCode);
           break;
 
@@ -201,7 +245,9 @@
           break;
 
         case "rejoined":
-          // Re-show the room view if player reconnected to an existing room
+          currentRoomCode = data.roomCode;
+          currentPlayerId = data.playerId;
+          // Show the room view on successful rejoin
           if (currentRoomCode && !roomSection.classList.contains("section-visible")) {
             showRoom(currentRoomCode);
           }
@@ -209,6 +255,18 @@
 
         case "error":
           showToast(data.message);
+
+          // If we were attempting a rejoin and it failed, clear session and show setup
+          if (pendingRejoinSession || (!setupSection.classList.contains("section-visible") && !roomSection.classList.contains("section-visible"))) {
+            pendingRejoinSession = null;
+            clearSession();
+            currentRoomCode = null;
+            currentPlayerId = null;
+            rejoinSection.classList.remove("section-visible");
+            rejoinSection.classList.add("hidden");
+            setupSection.classList.remove("hidden");
+            setupSection.classList.add("section-visible");
+          }
 
           // Re-enable create/join buttons so the player can try again
           createBtn.disabled = false;
@@ -245,6 +303,7 @@
         return;
       }
 
+      clearSession(); // Abandon any previous session
       createBtn.disabled = true;
       joinBtn.disabled = true;
       safeSend({
@@ -269,6 +328,7 @@
         return;
       }
 
+      clearSession(); // Abandon any previous session
       createBtn.disabled = true;
       joinBtn.disabled = true;
       safeSend({
@@ -435,8 +495,44 @@
       }
     });
 
-    // Initialize
-    connectWebSocket();
+    // Check for saved session and show rejoin prompt
+    const savedSession = getSavedSession();
+    if (savedSession) {
+      pendingRejoinSession = savedSession;
+      rejoinRoomCodeEl.textContent = savedSession.roomCode;
+      rejoinSection.classList.remove("hidden");
+      rejoinSection.classList.add("section-visible");
+      // Hide setup until user decides
+      setupSection.classList.remove("section-visible");
+      setupSection.classList.add("hidden");
+    }
+
+    // Rejoin button: set state and connect (onopen will send the rejoin message)
+    rejoinBtn.addEventListener("click", () => {
+      if (!pendingRejoinSession) return;
+      currentRoomCode = pendingRejoinSession.roomCode;
+      currentPlayerId = pendingRejoinSession.playerId;
+      rejoinSection.classList.remove("section-visible");
+      rejoinSection.classList.add("hidden");
+      // connectWebSocket's onopen will see currentRoomCode/currentPlayerId and send rejoin
+      connectWebSocket();
+    });
+
+    // Dismiss rejoin: clear session and show setup
+    rejoinDismissBtn.addEventListener("click", () => {
+      pendingRejoinSession = null;
+      clearSession();
+      rejoinSection.classList.remove("section-visible");
+      rejoinSection.classList.add("hidden");
+      setupSection.classList.remove("hidden");
+      setupSection.classList.add("section-visible");
+      connectWebSocket();
+    });
+
+    // Initialize: only auto-connect if no rejoin prompt is shown
+    if (!savedSession) {
+      connectWebSocket();
+    }
 
     // Select first avatar by default
     avatarBtns[0].classList.add("selected");
