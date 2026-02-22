@@ -203,9 +203,9 @@ feature/* or bugfix/* (active work)
 **"Insane" rules:**
 - **Plus stacking:** Any +card (+2, +4, +20) can deflect to the next player by playing ANY +card, regardless of color
 - **Reverse limit:** Max 4 reverse cards can stack in a row
-- **Skip behavior:** Skip cards skip the next 2 players (not 1)
+- **Skip behavior:** Skip cards skip the next player (advance by 2 positions)
 - **Infinite deck:** Server generates random cards on draw — no reshuffling needed
-- **Card types:** Standard 0-7, 9 (normal), 8 (wild), +2/+4/+20 (draw), Skip, Reverse
+- **Card types:** Standard 0-7, 9 (normal), 8 (wild), +2/+4/+20 (draw), Skip, Reverse, Swap
 
 ## Implementation Phases
 
