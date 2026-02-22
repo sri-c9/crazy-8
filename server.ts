@@ -84,6 +84,7 @@ function safeErrorMessage(error: unknown): string {
       "Invalid card", "Cannot play", "Must choose a color",
       "Invalid color choice", "Not in a room", "Game is not in progress",
       "Invalid card index", "not the host", "at least", "Unknown action",
+      "You are disconnected",
     ];
     if (safePatterns.some((p) => error.message.includes(p))) {
       return error.message;
@@ -659,6 +660,10 @@ const handlePlayCard = (
       ws.send(JSON.stringify({ type: "error", message: "Player not found" }));
       return;
     }
+    if (!player.connected) {
+      ws.send(JSON.stringify({ type: "error", message: "You are disconnected" }));
+      return;
+    }
 
     if (cardIndex < 0 || cardIndex >= player.hand.length) {
       ws.send(JSON.stringify({ type: "error", message: "Invalid card index" }));
@@ -781,6 +786,16 @@ const handleDrawCard = (ws: ServerWebSocket<WebSocketData>) => {
     // Check game status
     if (room.status !== GameStatus.playing) {
       ws.send(JSON.stringify({ type: "error", message: "Game is not in progress" }));
+      return;
+    }
+
+    const player = room.players.get(playerId);
+    if (!player) {
+      ws.send(JSON.stringify({ type: "error", message: "Player not found" }));
+      return;
+    }
+    if (!player.connected) {
+      ws.send(JSON.stringify({ type: "error", message: "You are disconnected" }));
       return;
     }
 
