@@ -432,15 +432,9 @@ const handleJoin = (
   msg: IncomingMessage,
 ) => {
   try {
-    const roomCode = validateString(msg.roomCode, "roomCode").toUpperCase();
-    const playerName = validateString(msg.playerName, "playerName").slice(0, 20);
+    const roomCode = validateRoomCode(msg.roomCode);
+    const playerName = validatePlayerName(msg.playerName);
     const avatar = validateString(msg.avatar, "avatar");
-
-    // 2A-3: Validate room code format
-    if (!/^[A-Z0-9]{4}$/.test(roomCode)) {
-      ws.send(JSON.stringify({ type: "error", message: "Invalid room code" }));
-      return;
-    }
 
     const { playerId } = joinRoom(roomCode, playerName, avatar);
 
@@ -472,7 +466,7 @@ const handleJoin = (
     ws.send(
       JSON.stringify({
         type: "error",
-        message: "Failed to join room",
+        message: safeErrorMessage(error),
       }),
     );
   }
@@ -762,7 +756,7 @@ const handlePlayCard = (
     ws.send(
       JSON.stringify({
         type: "error",
-        message: "Invalid play",
+        message: safeErrorMessage(error),
       }),
     );
   }
@@ -808,7 +802,7 @@ const handleDrawCard = (ws: ServerWebSocket<WebSocketData>) => {
     ws.send(
       JSON.stringify({
         type: "error",
-        message: "Failed to draw card",
+        message: safeErrorMessage(error),
       }),
     );
   }
