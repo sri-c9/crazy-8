@@ -36,6 +36,7 @@ interface IncomingMessage {
   avatar?: string;
   roomCode?: string;
   playerId?: string;
+  sessionToken?: string;
   cardIndex?: number;
   chosenColor?: CardColor;
 }
@@ -84,6 +85,7 @@ function safeErrorMessage(error: unknown): string {
       "Invalid card", "Cannot play", "Must choose a color",
       "Invalid color choice", "Not in a room", "Game is not in progress",
       "Invalid card index", "not the host", "at least", "Unknown action",
+      "You are disconnected", "Invalid session",
     ];
     if (safePatterns.some((p) => error.message.includes(p))) {
       return error.message;
@@ -391,7 +393,7 @@ const handleCreate = (
     const playerName = validatePlayerName(msg.playerName);
     const avatar = validateString(msg.avatar, "avatar");
 
-    const { roomCode, playerId } = createRoom(playerName, avatar);
+    const { roomCode, playerId, sessionToken } = createRoom(playerName, avatar);
 
     ws.data.playerId = playerId;
     ws.data.playerName = playerName;
@@ -406,6 +408,7 @@ const handleCreate = (
         type: "roomCreated",
         roomCode,
         playerId,
+        sessionToken: sessionToken,
       }),
     );
 
@@ -432,17 +435,11 @@ const handleJoin = (
   msg: IncomingMessage,
 ) => {
   try {
-    const roomCode = validateString(msg.roomCode, "roomCode").toUpperCase();
-    const playerName = validateString(msg.playerName, "playerName").slice(0, 20);
+    const roomCode = validateRoomCode(msg.roomCode);
+    const playerName = validatePlayerName(msg.playerName);
     const avatar = validateString(msg.avatar, "avatar");
 
-    // 2A-3: Validate room code format
-    if (!/^[A-Z0-9]{4}$/.test(roomCode)) {
-      ws.send(JSON.stringify({ type: "error", message: "Invalid room code" }));
-      return;
-    }
-
-    const { playerId } = joinRoom(roomCode, playerName, avatar);
+    const { playerId, sessionToken } = joinRoom(roomCode, playerName, avatar);
 
     ws.data.playerId = playerId;
     ws.data.playerName = playerName;
@@ -457,6 +454,7 @@ const handleJoin = (
         type: "joined",
         roomCode: roomCode,
         playerId: playerId,
+        sessionToken: sessionToken,
       }),
     );
 
@@ -472,7 +470,7 @@ const handleJoin = (
     ws.send(
       JSON.stringify({
         type: "error",
-        message: "Failed to join room",
+        message: safeErrorMessage(error),
       }),
     );
   }
@@ -512,6 +510,13 @@ const handleRejoin = (
     const player = room.players.get(playerId);
     if (!player) {
       ws.send(JSON.stringify({ type: "error", message: "Player not found" }));
+      return;
+    }
+
+    // Validate session token to prevent impersonation
+    const token = typeof msg.sessionToken === "string" ? msg.sessionToken : "";
+    if (player.sessionToken !== token) {
+      ws.send(JSON.stringify({ type: "error", message: "Invalid session" }));
       return;
     }
 
@@ -665,6 +670,10 @@ const handlePlayCard = (
       ws.send(JSON.stringify({ type: "error", message: "Player not found" }));
       return;
     }
+    if (!player.connected) {
+      ws.send(JSON.stringify({ type: "error", message: "You are disconnected" }));
+      return;
+    }
 
     if (cardIndex < 0 || cardIndex >= player.hand.length) {
       ws.send(JSON.stringify({ type: "error", message: "Invalid card index" }));
@@ -762,7 +771,7 @@ const handlePlayCard = (
     ws.send(
       JSON.stringify({
         type: "error",
-        message: "Invalid play",
+        message: safeErrorMessage(error),
       }),
     );
   }
@@ -790,6 +799,16 @@ const handleDrawCard = (ws: ServerWebSocket<WebSocketData>) => {
       return;
     }
 
+    const player = room.players.get(playerId);
+    if (!player) {
+      ws.send(JSON.stringify({ type: "error", message: "Player not found" }));
+      return;
+    }
+    if (!player.connected) {
+      ws.send(JSON.stringify({ type: "error", message: "You are disconnected" }));
+      return;
+    }
+
     const drawnCards = drawCard(room, playerId);
 
     // Send drawn cards to player (direct message)
@@ -808,7 +827,7 @@ const handleDrawCard = (ws: ServerWebSocket<WebSocketData>) => {
     ws.send(
       JSON.stringify({
         type: "error",
-        message: "Failed to draw card",
+        message: safeErrorMessage(error),
       }),
     );
   }

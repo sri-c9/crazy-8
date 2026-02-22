@@ -117,17 +117,19 @@
     }
 
     // Session persistence helpers
-    function saveSession(roomCode, playerId, playerName, avatar) {
+    function saveSession(roomCode, playerId, playerName, avatar, sessionToken) {
       sessionStorage.setItem('crazy8_roomCode', roomCode);
       sessionStorage.setItem('crazy8_playerId', playerId);
       sessionStorage.setItem('crazy8_playerName', playerName);
       sessionStorage.setItem('crazy8_avatar', avatar);
+      sessionStorage.setItem('crazy8_sessionToken', sessionToken || '');
     }
 
     function clearSession() {
       sessionStorage.removeItem('crazy8_roomCode');
       sessionStorage.removeItem('crazy8_playerId');
       sessionStorage.removeItem('crazy8_playerName');
+      sessionStorage.removeItem('crazy8_sessionToken');
       sessionStorage.removeItem('crazy8_avatar');
     }
 
@@ -136,8 +138,9 @@
       const playerId = sessionStorage.getItem('crazy8_playerId');
       const playerName = sessionStorage.getItem('crazy8_playerName');
       const avatar = sessionStorage.getItem('crazy8_avatar');
+      const sessionToken = sessionStorage.getItem('crazy8_sessionToken') || '';
       if (roomCode && playerId && playerName && avatar) {
-        return { roomCode, playerId, playerName, avatar };
+        return { roomCode, playerId, playerName, avatar, sessionToken };
       }
       return null;
     }
@@ -224,14 +227,14 @@
           currentRoomCode = data.roomCode;
           currentPlayerId = data.playerId;
           isHost = true;  // Creator is always host
-          saveSession(data.roomCode, data.playerId, playerNameInput.value.trim(), selectedAvatar);
+          saveSession(data.roomCode, data.playerId, playerNameInput.value.trim(), selectedAvatar, data.sessionToken);
           showRoom(data.roomCode);
           break;
 
         case "joined":
           currentRoomCode = data.roomCode;
           currentPlayerId = data.playerId;
-          saveSession(data.roomCode, data.playerId, playerNameInput.value.trim(), selectedAvatar);
+          saveSession(data.roomCode, data.playerId, playerNameInput.value.trim(), selectedAvatar, data.sessionToken);
           showRoom(data.roomCode);
           break;
 

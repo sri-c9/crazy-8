@@ -3,6 +3,7 @@ import { startGame } from "./game-logic";
 
 interface Player {
   id: string;
+  sessionToken: string;
   name: string;
   avatar: string;
   connected: boolean;
@@ -56,12 +57,14 @@ const generatePlayerId = (): string => {
 function createRoom(
   playerName: string,
   avatar: string,
-): { roomCode: string; playerId: string } {
+): { roomCode: string; playerId: string; sessionToken: string } {
   let roomCode = generateRoomCode();
   let hostId = generatePlayerId();
+  const hostToken = crypto.randomUUID();
 
   const hostPlayer: Player = {
     id: hostId,
+    sessionToken: hostToken,
     name: playerName,
     avatar: avatar,
     connected: true,
@@ -84,14 +87,14 @@ function createRoom(
   };
   room.players.set(hostId, hostPlayer);
   rooms.set(roomCode, room);
-  return { roomCode: roomCode, playerId: hostId };
+  return { roomCode: roomCode, playerId: hostId, sessionToken: hostToken };
 }
 
 function joinRoom(
   roomCode: string,
   playerName: string,
   avatar: string,
-): { playerId: string } {
+): { playerId: string; sessionToken: string } {
   const room: Room | undefined = rooms.get(roomCode);
 
   if (!room) {
@@ -106,8 +109,10 @@ function joinRoom(
   }
 
   let playerId = generatePlayerId();
+  const sessionToken = crypto.randomUUID();
   let player: Player = {
     id: playerId,
+    sessionToken,
     name: playerName,
     avatar: avatar,
     connected: true,
@@ -116,7 +121,7 @@ function joinRoom(
 
   room.players.set(playerId, player);
 
-  return { playerId: playerId };
+  return { playerId, sessionToken };
 }
 
 function leaveRoom(roomCode: string, playerId: string): void {
