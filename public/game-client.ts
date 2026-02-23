@@ -686,31 +686,46 @@ function showError(message: string) {
   showToast(`❌ ${message}`, true);
 }
 
-// Show toast notification (latest wins — removes any existing toast first)
-let activeToast: HTMLElement | null = null;
+// Toast queue — displays notifications sequentially to prevent overwrites
+const toastQueue: Array<{ message: string; isError: boolean }> = [];
+let isShowingToast = false;
 
 function showToast(message: string, isError: boolean = false) {
-  // Remove any currently visible toast immediately
-  if (activeToast) {
-    activeToast.remove();
-    activeToast = null;
+  if (isError) {
+    // Error toasts get priority: clear queue and interrupt any current toast
+    toastQueue.length = 0;
+    isShowingToast = false;
+    document.querySelectorAll(".toast").forEach((t) => t.remove());
   }
+  toastQueue.push({ message, isError });
+  processToastQueue();
+}
+
+function processToastQueue() {
+  if (isShowingToast || toastQueue.length === 0) return;
+
+  isShowingToast = true;
+  const { message, isError } = toastQueue.shift()!;
 
   const toast = document.createElement("div");
   toast.className = `toast ${isError ? "error" : ""}`;
   toast.textContent = message;
   document.body.appendChild(toast);
-  activeToast = toast;
 
   setTimeout(() => toast.classList.add("show"), 10);
+
+  // Shorten display time when more toasts are queued up
+  const pending = toastQueue.length;
+  const displayDuration = pending >= 3 ? 1200 : pending >= 1 ? 1500 : 3000;
 
   setTimeout(() => {
     toast.classList.remove("show");
     setTimeout(() => {
       toast.remove();
-      if (activeToast === toast) activeToast = null;
+      isShowingToast = false;
+      processToastQueue();
     }, 300);
-  }, 3000);
+  }, displayDuration);
 }
 
 // Hide loading overlay
