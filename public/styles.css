@@ -948,11 +948,14 @@ input[type="text"]:focus {
 
 @keyframes card-draw-in {
   from {
-    transform: translate(var(--draw-offset-x, 0), calc(-1 * var(--draw-offset-y, 0))) scale(0.5);
+    /* Use individual transform properties so they compose with JS-set transform (fan rotation/position) */
+    translate: var(--draw-offset-x, 0) calc(-1 * var(--draw-offset-y, 0));
+    scale: 0.5;
     opacity: 0;
   }
   to {
-    transform: translate(0, 0) scale(1);
+    translate: 0 0;
+    scale: 1;
     opacity: 1;
   }
 }
