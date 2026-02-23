@@ -11,6 +11,7 @@ import {
   getRoom,
   getAllRooms,
   deleteRoom,
+  touchRoom,
   GameStatus,
 } from "./room-manager";
 import {
@@ -246,6 +247,7 @@ const server = Bun.serve<WebSocketData>({
             break;
           case "join":
             handleJoin(ws, msg);
+            if (ws.data.roomCode) touchRoom(ws.data.roomCode);
             break;
           case "rejoin":
             handleRejoin(ws, msg);
@@ -255,9 +257,11 @@ const server = Bun.serve<WebSocketData>({
             break;
           case "play":
             handlePlayCard(ws, msg);
+            if (ws.data.roomCode) touchRoom(ws.data.roomCode);
             break;
           case "draw":
             handleDrawCard(ws);
+            if (ws.data.roomCode) touchRoom(ws.data.roomCode);
             break;
           default:
             ws.send(
@@ -852,7 +856,7 @@ setInterval(() => {
     // Safety net: if room is old enough and everyone is disconnected, clean it up.
     // The 2-min leave timers handle individual removal, but this sweep catches
     // rooms where timers may have misfired or all players disconnected in waiting state.
-    const roomAge = now - room.createdAt;
+    const roomAge = now - room.lastActivityAt;
     if (roomAge > STALE_DISCONNECT_THRESHOLD) {
       // Clean up any remaining timers for players in this room
       const playerIds = Array.from(room.players.keys());

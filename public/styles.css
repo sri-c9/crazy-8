@@ -906,12 +906,6 @@ input[type="text"]:focus {
   content: '↻';
 }
 
-.direction-indicator.counter-clockwise .direction-arrow {
-  top: 10%;
-  left: 10%;
-  transform: translate(-50%, -50%);
-}
-
 .direction-indicator.counter-clockwise .direction-arrow::before {
   content: '↺';
 }
@@ -1110,6 +1104,8 @@ input[type="text"]:focus {
   min-height: 130px;
   padding: 10px 15px;
   gap: 0;
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 30px), transparent 100%);
+  mask-image: linear-gradient(to right, black calc(100% - 30px), transparent 100%);
 }
 
 .hand-fan.scroll-layout .card {
