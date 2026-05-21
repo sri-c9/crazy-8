@@ -114,8 +114,10 @@ export async function startGame(hostPage: Page): Promise<void> {
  * - Cards are rendered in hand
  */
 export async function waitForGameReady(page: Page): Promise<void> {
-  // Wait for loading overlay to be hidden (state: 'hidden' means not visible)
-  await page.waitForSelector('#loadingOverlay', { state: 'hidden', timeout: 10000 });
+  // Wait for loading overlay to have the 'hidden' class
+  // Note: CSS uses opacity:0 + display:flex (not display:none) for the transition,
+  // so Playwright's visibility check doesn't work — we check the class instead.
+  await page.waitForSelector('#loadingOverlay.hidden', { state: 'attached', timeout: 10000 });
 
   // Wait for hand cards to be rendered
   await page.waitForSelector('#handCards .card', { timeout: 5000 });

@@ -1,13 +1,39 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type BrowserContext } from '@playwright/test';
 import { createRoom, joinRoom, startGame, waitForGameReady } from './helpers/game-flow';
 
 /**
  * Player List tests - Bug 12
  *
- * Verifies that sensitive data (player hands) are not leaked in playerList messages:
- * - Bug 12: playerList should not include hand property
- * - State messages should only include own hand
+ * Verifies that sensitive data (player hands) are not leaked:
+ * - Bug 12: playerList messages must not include any hand property
+ * - state messages must only include the recipient's own hand
+ *
+ * Approach: install a WebSocket interceptor via addInitScript BEFORE any page loads, so it
+ * records every message the page's REAL game connection receives into window.__wsMessages.
+ * This asserts against actual server traffic (the server sends both a playerList and a state
+ * to each client on rejoin — see handleRejoin in server.ts).
  */
+
+// Records all incoming WebSocket messages on every page in the context into window.__wsMessages.
+// Re-runs on each navigation, so on the game page the array holds the game connection's traffic.
+function installWsRecorder(context: BrowserContext): Promise<void> {
+  return context.addInitScript(() => {
+    (window as any).__wsMessages = [];
+    const OrigWS = (window as any).WebSocket;
+    (window as any).WebSocket = class extends OrigWS {
+      constructor(...args: any[]) {
+        super(...args);
+        this.addEventListener('message', (event: any) => {
+          try {
+            (window as any).__wsMessages.push(JSON.parse(event.data));
+          } catch {
+            // ignore non-JSON frames
+          }
+        });
+      }
+    };
+  });
+}
 
 test.describe('Player List - Data Leakage Prevention', () => {
   test('Bug 12: playerList message should not include hand property', async ({ browser }) => {
@@ -16,6 +42,9 @@ test.describe('Player List - Data Leakage Prevention', () => {
     const context3 = await browser.newContext();
 
     try {
+      // Record WS traffic on the host before any page loads.
+      await installWsRecorder(context1);
+
       // Set up 3-player game
       const host = await createRoom(context1, 'Host', '😎');
       const player2 = await joinRoom(context2, host.roomCode, 'Player 2', '🔥');
@@ -29,39 +58,24 @@ test.describe('Player List - Data Leakage Prevention', () => {
       await waitForGameReady(player2.page);
       await waitForGameReady(player3.page);
 
-      // Open a separate WebSocket to capture playerList message
-      const playerListData = await host.page.evaluate(async () => {
-        return new Promise<any>((resolve) => {
-          const params = new URLSearchParams(window.location.search);
-          const roomCode = params.get('room');
-          const playerId = params.get('player');
+      // Wait until the host's real connection has actually received a playerList message.
+      await host.page.waitForFunction(
+        () => (window as any).__wsMessages?.some((m: any) => m.type === 'playerList'),
+        { timeout: 5000 },
+      );
 
-          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-          const testWs = new WebSocket(`${protocol}//${window.location.host}/ws?room=${roomCode}&player=${playerId}`);
+      const playerListMsg = await host.page.evaluate(() =>
+        [...(window as any).__wsMessages].reverse().find((m: any) => m.type === 'playerList'),
+      );
 
-          testWs.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'playerList') {
-              testWs.close();
-              resolve(data);
-            }
-          };
+      expect(playerListMsg).toBeTruthy();
+      expect(Array.isArray(playerListMsg.players)).toBe(true);
+      expect(playerListMsg.players.length).toBe(3);
 
-          // Timeout after 5 seconds
-          setTimeout(() => {
-            testWs.close();
-            resolve(null);
-          }, 5000);
-        });
-      });
-
-      if (playerListData && playerListData.players) {
-        // Check that no player in the list has a 'hand' property
-        for (const player of playerListData.players) {
-          expect(player).not.toHaveProperty('hand');
-        }
+      // No player entry in the list may carry hand data.
+      for (const player of playerListMsg.players) {
+        expect(player).not.toHaveProperty('hand');
       }
-
     } finally {
       await context1.close();
       await context2.close();
@@ -75,6 +89,9 @@ test.describe('Player List - Data Leakage Prevention', () => {
     const context3 = await browser.newContext();
 
     try {
+      // Record WS traffic on the host before any page loads.
+      await installWsRecorder(context1);
+
       // Set up 3-player game
       const host = await createRoom(context1, 'Host', '😎');
       const player2 = await joinRoom(context2, host.roomCode, 'Player 2', '🔥');
@@ -88,48 +105,32 @@ test.describe('Player List - Data Leakage Prevention', () => {
       await waitForGameReady(player2.page);
       await waitForGameReady(player3.page);
 
-      // Capture state message
-      const stateData = await host.page.evaluate(async () => {
-        return new Promise<any>((resolve) => {
-          const params = new URLSearchParams(window.location.search);
-          const roomCode = params.get('room');
-          const playerId = params.get('player');
+      // Wait until the host's real connection has actually received a state message.
+      await host.page.waitForFunction(
+        () => (window as any).__wsMessages?.some((m: any) => m.type === 'state'),
+        { timeout: 5000 },
+      );
 
-          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-          const testWs = new WebSocket(`${protocol}//${window.location.host}/ws?room=${roomCode}&player=${playerId}`);
+      const stateMsg = await host.page.evaluate(() =>
+        [...(window as any).__wsMessages].reverse().find((m: any) => m.type === 'state'),
+      );
 
-          testWs.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'state') {
-              testWs.close();
-              resolve(data);
-            }
-          };
+      expect(stateMsg).toBeTruthy();
+      expect(stateMsg.gameState?.players?.length).toBe(3);
 
-          // Timeout after 5 seconds
-          setTimeout(() => {
-            testWs.close();
-            resolve(null);
-          }, 5000);
-        });
-      });
+      const yourPlayerId = stateMsg.yourPlayerId;
+      expect(yourPlayerId).toBeTruthy();
 
-      if (stateData && stateData.gameState && stateData.gameState.players) {
-        const yourPlayerId = stateData.yourPlayerId;
-
-        // Check each player in the state
-        for (const player of stateData.gameState.players) {
-          if (player.id === yourPlayerId) {
-            // Your own player should have a hand array
-            expect(player.hand).toBeDefined();
-            expect(Array.isArray(player.hand)).toBe(true);
-          } else {
-            // Other players should NOT have hand property, or it should be undefined
-            expect(player.hand).toBeUndefined();
-          }
+      for (const player of stateMsg.gameState.players) {
+        if (player.id === yourPlayerId) {
+          // Your own player should have a hand array.
+          expect(player.hand).toBeDefined();
+          expect(Array.isArray(player.hand)).toBe(true);
+        } else {
+          // Other players must NOT have hand data.
+          expect(player.hand).toBeUndefined();
         }
       }
-
     } finally {
       await context1.close();
       await context2.close();

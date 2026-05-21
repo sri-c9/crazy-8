@@ -226,6 +226,7 @@
         case "roomCreated":
           currentRoomCode = data.roomCode;
           currentPlayerId = data.playerId;
+          window.currentPlayerId = data.playerId;
           isHost = true;  // Creator is always host
           saveSession(data.roomCode, data.playerId, playerNameInput.value.trim(), selectedAvatar, data.sessionToken);
           showRoom(data.roomCode);
@@ -234,6 +235,7 @@
         case "joined":
           currentRoomCode = data.roomCode;
           currentPlayerId = data.playerId;
+          window.currentPlayerId = data.playerId;
           saveSession(data.roomCode, data.playerId, playerNameInput.value.trim(), selectedAvatar, data.sessionToken);
           showRoom(data.roomCode);
           break;
@@ -250,6 +252,7 @@
         case "rejoined":
           currentRoomCode = data.roomCode;
           currentPlayerId = data.playerId;
+          window.currentPlayerId = data.playerId;
           // Show the room view on successful rejoin
           if (currentRoomCode && !roomSection.classList.contains("section-visible")) {
             showRoom(currentRoomCode);
