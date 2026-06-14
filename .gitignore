@@ -33,3 +33,13 @@ public/admin-client.js
 
 # Development worktrees
 .worktrees/
+
+# Test artifacts (Playwright)
+test-results/
+playwright-report/
+
+# Stray npm lockfile (this is a Bun project — use bun.lock)
+package-lock.json
+
+# Local QA screenshots
+lobby-*.png
