@@ -11,6 +11,7 @@ import {
   getRoom,
   getAllRooms,
   deleteRoom,
+  touchRoom,
   GameStatus,
 } from "./room-manager";
 import {
@@ -169,6 +170,16 @@ function isCreateRateLimited(ws: ServerWebSocket<WebSocketData>): boolean {
 
 const PORT = parseInt(Bun.env.PORT ?? "3000", 10);
 
+// Resilience: a thrown error in one connection's handler or a deferred timer
+// callback must never take down the whole server (and every other room with it).
+// Log and keep running rather than crashing the process.
+process.on("uncaughtException", (error) => {
+  console.error("uncaughtException:", error);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("unhandledRejection:", reason);
+});
+
 const server = Bun.serve<WebSocketData>({
   port: PORT,
 
@@ -246,6 +257,7 @@ const server = Bun.serve<WebSocketData>({
             break;
           case "join":
             handleJoin(ws, msg);
+            if (ws.data.roomCode) touchRoom(ws.data.roomCode);
             break;
           case "rejoin":
             handleRejoin(ws, msg);
@@ -255,9 +267,11 @@ const server = Bun.serve<WebSocketData>({
             break;
           case "play":
             handlePlayCard(ws, msg);
+            if (ws.data.roomCode) touchRoom(ws.data.roomCode);
             break;
           case "draw":
             handleDrawCard(ws);
+            if (ws.data.roomCode) touchRoom(ws.data.roomCode);
             break;
           default:
             ws.send(
@@ -273,6 +287,7 @@ const server = Bun.serve<WebSocketData>({
     },
 
     close(ws: ServerWebSocket<WebSocketData>) {
+      try {
       if (ws.data.roomCode && ws.data.playerId) {
         const { roomCode, playerId } = ws.data;
 
@@ -298,30 +313,26 @@ const server = Bun.serve<WebSocketData>({
           }),
         );
 
-        // 1B: 30s timer — auto-skip turn if it's this player's turn
-        const skipTimer = setTimeout(() => {
-          turnSkipTimers.delete(playerId);
-
+        // Immediately advance turn if it's this player's turn
+        {
           const room = getRoom(roomCode);
-          if (!room) return;
-          if (room.status !== GameStatus.playing) return;
-
-          const player = room.players.get(playerId);
-          if (!player || player.connected) return; // reconnected
-
-          // If it's this player's turn, advance
-          const currentPlayerId = getCurrentPlayer(room);
-          if (currentPlayerId === playerId) {
-            // Clear any pending draws before skipping
-            room.pendingDraws = 0;
-            advanceTurn(room);
-            broadcastGameState(roomCode);
+          console.log(`[DISCONNECT] player=${playerId} room=${roomCode} roomExists=${!!room} status=${room?.status}`);
+          if (room && room.status === GameStatus.playing) {
+            const currentPlayerId = getCurrentPlayer(room);
+            console.log(`[DISCONNECT] currentPlayer=${currentPlayerId} disconnected=${playerId} match=${currentPlayerId === playerId}`);
+            if (currentPlayerId === playerId) {
+              room.pendingDraws = 0;
+              advanceTurn(room);
+              const newCurrent = getCurrentPlayer(room);
+              console.log(`[DISCONNECT] Turn advanced to ${newCurrent}`);
+              broadcastGameState(roomCode);
+            }
           }
-        }, 30_000);
-        turnSkipTimers.set(playerId, skipTimer);
+        }
 
         // 1C: 2min timer — formally remove player from room
         const leaveTimer = setTimeout(() => {
+          try {
           leaveTimers.delete(playerId);
           disconnectInfo.delete(playerId);
 
@@ -370,8 +381,14 @@ const server = Bun.serve<WebSocketData>({
             // Broadcast state so remaining players see updated turn
             broadcastGameState(roomCode);
           }
+          } catch (error) {
+            console.error("leaveTimer callback error:", error);
+          }
         }, 120_000);
         leaveTimers.set(playerId, leaveTimer);
+      }
+      } catch (error) {
+        console.error("WebSocket close handler error:", error);
       }
     },
   },
@@ -598,7 +615,11 @@ const broadcastGameState = (roomCode: string, winner?: string | null) => {
     // Send directly to this player's connection (not broadcast)
     const playerWs = playerConnections.get(playerId);
     if (playerWs) {
-      playerWs.send(JSON.stringify(personalizedState));
+      try {
+        playerWs.send(JSON.stringify(personalizedState));
+      } catch (error) {
+        console.error(`Failed to send state to ${playerId}:`, error);
+      }
     }
   }
 };
@@ -852,7 +873,7 @@ setInterval(() => {
     // Safety net: if room is old enough and everyone is disconnected, clean it up.
     // The 2-min leave timers handle individual removal, but this sweep catches
     // rooms where timers may have misfired or all players disconnected in waiting state.
-    const roomAge = now - room.createdAt;
+    const roomAge = now - room.lastActivityAt;
     if (roomAge > STALE_DISCONNECT_THRESHOLD) {
       // Clean up any remaining timers for players in this room
       const playerIds = Array.from(room.players.keys());

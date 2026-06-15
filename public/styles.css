@@ -906,12 +906,6 @@ input[type="text"]:focus {
   content: '↻';
 }
 
-.direction-indicator.counter-clockwise .direction-arrow {
-  top: 10%;
-  left: 10%;
-  transform: translate(-50%, -50%);
-}
-
 .direction-indicator.counter-clockwise .direction-arrow::before {
   content: '↺';
 }
@@ -954,11 +948,14 @@ input[type="text"]:focus {
 
 @keyframes card-draw-in {
   from {
-    transform: translate(var(--draw-offset-x, 0), calc(-1 * var(--draw-offset-y, 0))) scale(0.5);
+    /* Use individual transform properties so they compose with JS-set transform (fan rotation/position) */
+    translate: var(--draw-offset-x, 0) calc(-1 * var(--draw-offset-y, 0));
+    scale: 0.5;
     opacity: 0;
   }
   to {
-    transform: translate(0, 0) scale(1);
+    translate: 0 0;
+    scale: 1;
     opacity: 1;
   }
 }
@@ -1110,6 +1107,8 @@ input[type="text"]:focus {
   min-height: 130px;
   padding: 10px 15px;
   gap: 0;
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 30px), transparent 100%);
+  mask-image: linear-gradient(to right, black calc(100% - 30px), transparent 100%);
 }
 
 .hand-fan.scroll-layout .card {

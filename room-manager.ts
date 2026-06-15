@@ -16,6 +16,7 @@ interface Room {
   hostId: string;
   status: GameStatus;
   createdAt: number;
+  lastActivityAt: number;
   // Game state fields
   currentPlayerIndex: number;
   direction: 1 | -1;
@@ -77,6 +78,7 @@ function createRoom(
     hostId: hostId,
     status: GameStatus.waiting,
     createdAt: Date.now(),
+    lastActivityAt: Date.now(),
     // Initialize game state
     currentPlayerIndex: 0,
     direction: 1,
@@ -259,6 +261,11 @@ function deleteRoom(roomCode: string): void {
   rooms.delete(roomCode);
 }
 
+function touchRoom(roomCode: string): void {
+  const room = rooms.get(roomCode);
+  if (room) room.lastActivityAt = Date.now();
+}
+
 export {
   createRoom,
   joinRoom,
@@ -270,6 +277,7 @@ export {
   deleteRoom,
   getRoomPlayerList,
   startGameInRoom,
+  touchRoom,
   type Player,
   type Room,
   type PlayerListItem,

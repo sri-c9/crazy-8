@@ -51,14 +51,19 @@ test.describe('Disconnect Handling', () => {
       // Close the current player's page (simulates disconnect)
       await currentPlayer.page.close();
 
-      // Wait for disconnect to be processed
-      await remainingPlayers[0].page.waitForTimeout(1500);
-
-      // One of the remaining players should now have the turn
-      const hasPlayer1Turn = await remainingPlayers[0].page.$('.hand-area.your-turn');
-      const hasPlayer2Turn = await remainingPlayers[1].page.$('.hand-area.your-turn');
-
-      const turnAdvanced = hasPlayer1Turn !== null || hasPlayer2Turn !== null;
+      // Wait for the turn to advance to one of the remaining players.
+      // The server immediately advances on disconnect and broadcasts state.
+      // Use waitForFunction to poll until one of the remaining players sees your-turn.
+      let turnAdvanced = false;
+      for (const rp of remainingPlayers) {
+        try {
+          await rp.page.waitForSelector('.hand-area.your-turn', { timeout: 5000 });
+          turnAdvanced = true;
+          break;
+        } catch {
+          // This player didn't get the turn, check the other one
+        }
+      }
       expect(turnAdvanced).toBe(true);
 
       // Verify disconnected opponent is marked as disconnected
@@ -96,6 +101,11 @@ test.describe('Disconnect Handling', () => {
       const roomCode = await getRoomCode(player2.page);
       const playerId = player2.playerId;
 
+      // Save session token before closing (sessionStorage is per-tab)
+      const sessionToken = await player2.page.evaluate(() =>
+        sessionStorage.getItem('crazy8_sessionToken') || ''
+      );
+
       // Close player2's page (disconnect)
       await player2.page.close();
 
@@ -104,6 +114,12 @@ test.describe('Disconnect Handling', () => {
 
       // Rejoin with a new page in the same context
       const newPage = await context2.newPage();
+      // Navigate to origin first to set sessionStorage (it doesn't persist across tabs)
+      await newPage.goto('/');
+      await newPage.evaluate((token) => {
+        sessionStorage.setItem('crazy8_sessionToken', token);
+      }, sessionToken);
+      // Now navigate to game page — the rejoin will use the restored token
       await newPage.goto(`/game.html?room=${roomCode}&player=${playerId}`);
 
       // Wait for game to be ready

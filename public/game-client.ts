@@ -38,6 +38,7 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 let gameOver = false;
 let isPlayPending = false;
+let isReconnecting = false;
 let previousHandLength = 0;
 let wasYourTurn = false;
 
@@ -78,6 +79,8 @@ function connectWebSocket() {
   ws.onopen = () => {
     console.log("Connected to game");
     reconnectAttempts = 0;
+    isReconnecting = false;
+    isPlayPending = false;
     hideLoading();
 
     // Identify ourselves to the server
@@ -107,12 +110,14 @@ function connectWebSocket() {
 
   ws.onclose = () => {
     console.log("Disconnected");
+    isReconnecting = true;
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 15000);
       reconnectAttempts++;
       showToast(`Reconnecting... (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
       setTimeout(() => connectWebSocket(), delay);
     } else {
+      isReconnecting = false;
       showError("Connection lost. Refresh to try again.");
     }
   };
@@ -156,6 +161,8 @@ function handleMessage(data: any) {
         setTimeout(() => { window.location.href = "/"; }, 2000);
       }
       isPlayPending = false;
+      const drawBtn = document.getElementById("drawBtn") as HTMLButtonElement;
+      if (drawBtn) drawBtn.disabled = false;
       break;
 
     default:
@@ -353,13 +360,13 @@ function renderHand(
         cardEl.classList.add("unplayable");
       }
 
-      if (index >= newCardStartIndex) {
-        cardEl.classList.add("card-entering");
-      }
-
       cardEl.style.zIndex = index.toString();
 
       container.appendChild(cardEl);
+
+      if (index >= newCardStartIndex) {
+        setDrawAnimation(cardEl);
+      }
     });
   } else {
     // Fan layout for <= 12 cards
@@ -376,10 +383,6 @@ function renderHand(
         cardEl.onclick = () => handleCardClick(index, card);
       } else {
         cardEl.classList.add("unplayable");
-      }
-
-      if (index >= newCardStartIndex) {
-        cardEl.classList.add("card-entering");
       }
 
       // Calculate fan layout positioning
@@ -405,10 +408,29 @@ function renderHand(
       cardEl.style.zIndex = zIndex.toString();
 
       container.appendChild(cardEl);
+
+      if (index >= newCardStartIndex) {
+        setDrawAnimation(cardEl);
+      }
     });
   }
 
   document.getElementById("cardCount")!.textContent = hand.length.toString();
+}
+
+// Set draw-from-pile animation on a newly-added card element.
+// Must be called AFTER the element is in the DOM so getBoundingClientRect works.
+function setDrawAnimation(cardEl: HTMLElement) {
+  const drawBtn = document.getElementById("drawBtn");
+  if (drawBtn) {
+    const drawBtnRect = drawBtn.getBoundingClientRect();
+    const cardRect = cardEl.getBoundingClientRect();
+    const offsetX = drawBtnRect.left + drawBtnRect.width / 2 - (cardRect.left + cardRect.width / 2);
+    const offsetY = drawBtnRect.top + drawBtnRect.height / 2 - (cardRect.top + cardRect.height / 2);
+    cardEl.style.setProperty("--draw-offset-x", `${offsetX}px`);
+    cardEl.style.setProperty("--draw-offset-y", `${offsetY}px`);
+  }
+  cardEl.classList.add("card-entering");
 }
 
 // Create card element
@@ -529,6 +551,7 @@ function renderTopCard(card: Card, lastColor: string | null) {
 function handleCardClick(index: number, card: Card) {
   if (gameOver) return; // Don't allow interactions after game over
   if (isPlayPending) return; // Prevent double-play while waiting for server response
+  if (isReconnecting) return; // Prevent actions while reconnecting
 
   if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
     // Show color picker for cards that require color selection
@@ -567,8 +590,11 @@ function drawCards() {
   if (!ws) return;
   if (gameOver) return; // Don't allow interactions after game over
   if (isPlayPending) return; // Prevent double-draw
+  if (isReconnecting) return; // Prevent actions while reconnecting
 
   isPlayPending = true;
+  const drawBtn = document.getElementById("drawBtn") as HTMLButtonElement;
+  if (drawBtn) drawBtn.disabled = true;
   safeSend({
     action: "draw",
   });
@@ -686,31 +712,46 @@ function showError(message: string) {
   showToast(`❌ ${message}`, true);
 }
 
-// Show toast notification (latest wins — removes any existing toast first)
-let activeToast: HTMLElement | null = null;
+// Toast queue — displays notifications sequentially to prevent overwrites
+const toastQueue: Array<{ message: string; isError: boolean }> = [];
+let isShowingToast = false;
 
 function showToast(message: string, isError: boolean = false) {
-  // Remove any currently visible toast immediately
-  if (activeToast) {
-    activeToast.remove();
-    activeToast = null;
+  if (isError) {
+    // Error toasts get priority: clear queue and interrupt any current toast
+    toastQueue.length = 0;
+    isShowingToast = false;
+    document.querySelectorAll(".toast").forEach((t) => t.remove());
   }
+  toastQueue.push({ message, isError });
+  processToastQueue();
+}
+
+function processToastQueue() {
+  if (isShowingToast || toastQueue.length === 0) return;
+
+  isShowingToast = true;
+  const { message, isError } = toastQueue.shift()!;
 
   const toast = document.createElement("div");
   toast.className = `toast ${isError ? "error" : ""}`;
   toast.textContent = message;
   document.body.appendChild(toast);
-  activeToast = toast;
 
   setTimeout(() => toast.classList.add("show"), 10);
+
+  // Shorten display time when more toasts are queued up
+  const pending = toastQueue.length;
+  const displayDuration = pending >= 3 ? 1200 : pending >= 1 ? 1500 : 3000;
 
   setTimeout(() => {
     toast.classList.remove("show");
     setTimeout(() => {
       toast.remove();
-      if (activeToast === toast) activeToast = null;
+      isShowingToast = false;
+      processToastQueue();
     }, 300);
-  }, 3000);
+  }, displayDuration);
 }
 
 // Hide loading overlay
