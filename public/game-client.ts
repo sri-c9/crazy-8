@@ -33,7 +33,9 @@ let ws: WebSocket | null = null;
 let yourPlayerId: string | null = null;
 let roomCode: string | null = null;
 let pendingWildCardIndex: number | null = null;
+let pendingWildCardEl: HTMLElement | null = null;
 let currentGameState: GameState | null = null;
+let previousGameState: GameState | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 let gameOver = false;
@@ -41,6 +43,18 @@ let isPlayPending = false;
 let isReconnecting = false;
 let previousHandLength = 0;
 let wasYourTurn = false;
+
+// Compare two cards for equality (used for diff-based animations)
+function cardsEqual(a: Card | undefined, b: Card | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.type === b.type &&
+    a.color === b.color &&
+    a.value === b.value &&
+    a.chosenColor === b.chosenColor
+  );
+}
 
 // Safe WebSocket send helper
 function safeSend(data: any) {
@@ -138,6 +152,7 @@ function handleMessage(data: any) {
 
     case "state":
       isPlayPending = false;
+      previousGameState = currentGameState;
       currentGameState = data.gameState;
       renderGameState(data.gameState, data.yourPlayerId);
       break;
@@ -230,6 +245,63 @@ function renderGameState(state: GameState, playerId: string) {
   drawBtn.disabled = !isYourTurn || isPlayPending;
   drawBtn.textContent = state.pendingDraws > 0 ? `Draw +${state.pendingDraws}` : "Draw";
 
+  // Diff-based transient animations (skip on first render)
+  if (previousGameState && yourPlayerId) {
+    const topChanged = !cardsEqual(previousGameState.topCard, state.topCard);
+
+    // Opponent play fly-over
+    if (topChanged) {
+      const prevOpponents = previousGameState.players.filter((p) => p.id !== yourPlayerId);
+      const currOpponents = state.players.filter((p) => p.id !== yourPlayerId);
+      for (const prevOpp of prevOpponents) {
+        const currOpp = currOpponents.find((p) => p.id === prevOpp.id);
+        if (currOpp && currOpp.cardCount < prevOpp.cardCount) {
+          const oppNode = document.querySelector(
+            `.opponent-node[data-player-id="${currOpp.id}"] .opponent-avatar-circle`
+          ) as HTMLElement | null;
+          if (oppNode) animateOpponentPlayToDiscard(oppNode);
+          break;
+        }
+      }
+    }
+
+    // Discard pile pop
+    if (topChanged) {
+      const topCardEl = document.getElementById("topCard")!;
+      topCardEl.classList.remove("discard-pop");
+      void topCardEl.offsetWidth;
+      topCardEl.classList.add("discard-pop");
+      topCardEl.addEventListener("animationend", () => topCardEl.classList.remove("discard-pop"), { once: true });
+    }
+
+    // Direction spin
+    if (previousGameState.direction !== state.direction) {
+      const dirInd = document.getElementById("directionIndicator")!;
+      dirInd.classList.remove("direction-spin");
+      void dirInd.offsetWidth;
+      dirInd.classList.add("direction-spin");
+      dirInd.addEventListener("animationend", () => dirInd.classList.remove("direction-spin"), { once: true });
+    }
+
+    // Pending draws bump
+    if (state.pendingDraws > previousGameState.pendingDraws && isYourTurn) {
+      const pendingAlert = document.getElementById("pendingAlert")!;
+      pendingAlert.classList.remove("pending-bump");
+      void pendingAlert.offsetWidth;
+      pendingAlert.classList.add("pending-bump");
+      pendingAlert.addEventListener("animationend", () => pendingAlert.classList.remove("pending-bump"), { once: true });
+
+      drawBtn.classList.add("draw-pile-flash");
+      drawBtn.addEventListener("animationend", () => drawBtn.classList.remove("draw-pile-flash"), { once: true });
+
+      const drawPileStack = document.querySelector(".draw-pile-stack") as HTMLElement | null;
+      if (drawPileStack) {
+        drawPileStack.classList.add("draw-pile-flash");
+        drawPileStack.addEventListener("animationend", () => drawPileStack.classList.remove("draw-pile-flash"), { once: true });
+      }
+    }
+  }
+
   // Show disconnected player indicator when it's an offline player's turn
   const currentTurnPlayer = state.players.find((p) => p.id === state.currentPlayerId);
   const disconnectedAlert = document.getElementById("disconnectedAlert")!;
@@ -243,7 +315,7 @@ function renderGameState(state: GameState, playerId: string) {
   // Check for winner after rendering all game state (show modal on top of final board)
   if (state.winner) {
     if (state.winner === "__admin__") {
-      showGameOver("Game ended by admin");
+      showGameOver("Game ended by admin", false);
     } else {
       const winner = state.players.find((p) => p.id === state.winner);
       showGameOver((winner ? winner.name : "Unknown player") + " wins!");
@@ -271,6 +343,7 @@ function renderOpponents(
   opponents.forEach((player, index) => {
     const div = document.createElement("div");
     div.className = "opponent-node";
+    div.dataset.playerId = player.id;
     if (player.id === currentPlayerId) {
       div.classList.add("current-turn");
     }
@@ -355,7 +428,7 @@ function renderHand(
       const isPlayable = isYourTurn && canPlayCardClient(card, topCard, state);
       if (isPlayable) {
         cardEl.classList.add("playable");
-        cardEl.onclick = () => handleCardClick(index, card);
+        cardEl.onclick = (e) => handleCardClick(index, card, e.currentTarget as HTMLElement);
       } else {
         cardEl.classList.add("unplayable");
       }
@@ -365,7 +438,7 @@ function renderHand(
       container.appendChild(cardEl);
 
       if (index >= newCardStartIndex) {
-        setDrawAnimation(cardEl);
+        setDrawAnimation(cardEl, index - newCardStartIndex);
       }
     });
   } else {
@@ -380,7 +453,7 @@ function renderHand(
       const isPlayable = isYourTurn && canPlayCardClient(card, topCard, state);
       if (isPlayable) {
         cardEl.classList.add("playable");
-        cardEl.onclick = () => handleCardClick(index, card);
+        cardEl.onclick = (e) => handleCardClick(index, card, e.currentTarget as HTMLElement);
       } else {
         cardEl.classList.add("unplayable");
       }
@@ -410,7 +483,7 @@ function renderHand(
       container.appendChild(cardEl);
 
       if (index >= newCardStartIndex) {
-        setDrawAnimation(cardEl);
+        setDrawAnimation(cardEl, index - newCardStartIndex);
       }
     });
   }
@@ -420,7 +493,7 @@ function renderHand(
 
 // Set draw-from-pile animation on a newly-added card element.
 // Must be called AFTER the element is in the DOM so getBoundingClientRect works.
-function setDrawAnimation(cardEl: HTMLElement) {
+function setDrawAnimation(cardEl: HTMLElement, staggerIndex = 0) {
   const drawBtn = document.getElementById("drawBtn");
   if (drawBtn) {
     const drawBtnRect = drawBtn.getBoundingClientRect();
@@ -430,7 +503,94 @@ function setDrawAnimation(cardEl: HTMLElement) {
     cardEl.style.setProperty("--draw-offset-x", `${offsetX}px`);
     cardEl.style.setProperty("--draw-offset-y", `${offsetY}px`);
   }
+  cardEl.style.setProperty("--draw-stagger", `${staggerIndex * 80}ms`);
   cardEl.classList.add("card-entering");
+}
+
+// Animate a card clone from the player's hand to the discard pile.
+// Purely cosmetic; server state remains authoritative.
+function animateCardToDiscard(sourceEl: HTMLElement): void {
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (typeof Element === "undefined" || !Element.prototype.animate) return;
+
+  const topCard = document.getElementById("topCard");
+  if (!topCard) return;
+
+  const sourceRect = sourceEl.getBoundingClientRect();
+  const targetRect = topCard.getBoundingClientRect();
+  const clone = sourceEl.cloneNode(true) as HTMLElement;
+  clone.style.position = "fixed";
+  clone.style.left = `${sourceRect.left}px`;
+  clone.style.top = `${sourceRect.top}px`;
+  clone.style.width = `${sourceRect.width}px`;
+  clone.style.height = `${sourceRect.height}px`;
+  clone.style.margin = "0";
+  clone.style.zIndex = "1000";
+  clone.style.pointerEvents = "none";
+  document.body.appendChild(clone);
+
+  const deltaX = targetRect.left + targetRect.width / 2 - (sourceRect.left + sourceRect.width / 2);
+  const deltaY = targetRect.top + targetRect.height / 2 - (sourceRect.top + sourceRect.height / 2);
+
+  const animation = clone.animate(
+    [
+      { transform: "translate(0, 0) rotate(0deg) scale(1)" },
+      {
+        transform: `translate(${deltaX * 0.5}px, ${deltaY * 0.3}px) rotate(${deltaX > 0 ? 8 : -8}deg) scale(1.05)`,
+        offset: 0.5,
+      },
+      { transform: `translate(${deltaX}px, ${deltaY}px) rotate(0deg) scale(0.92)` },
+    ],
+    {
+      duration: 350,
+      easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+    }
+  );
+
+  animation.onfinish = () => clone.remove();
+}
+
+// Animate a face-down card from an opponent's avatar to the discard pile.
+function animateOpponentPlayToDiscard(sourceEl: HTMLElement): void {
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (typeof Element === "undefined" || !Element.prototype.animate) return;
+
+  const topCard = document.getElementById("topCard");
+  if (!topCard) return;
+
+  const sourceRect = sourceEl.getBoundingClientRect();
+  const targetRect = topCard.getBoundingClientRect();
+  const rootStyles = getComputedStyle(document.documentElement);
+  const cardWidth = parseFloat(rootStyles.getPropertyValue("--card-width")) || 68;
+  const cardHeight = parseFloat(rootStyles.getPropertyValue("--card-height")) || 100;
+
+  const clone = document.createElement("div");
+  clone.className = "card-back opponent-play-clone";
+  clone.style.width = `${cardWidth}px`;
+  clone.style.height = `${cardHeight}px`;
+  clone.style.left = `${sourceRect.left + sourceRect.width / 2 - cardWidth / 2}px`;
+  clone.style.top = `${sourceRect.top + sourceRect.height / 2 - cardHeight / 2}px`;
+  document.body.appendChild(clone);
+
+  const deltaX = targetRect.left + targetRect.width / 2 - (sourceRect.left + sourceRect.width / 2);
+  const deltaY = targetRect.top + targetRect.height / 2 - (sourceRect.top + sourceRect.height / 2);
+
+  const animation = clone.animate(
+    [
+      { transform: "translate(0, 0) rotate(0deg) scale(1)" },
+      {
+        transform: `translate(${deltaX * 0.6}px, ${deltaY * 0.2}px) rotate(12deg) scale(1.05)`,
+        offset: 0.5,
+      },
+      { transform: `translate(${deltaX}px, ${deltaY}px) rotate(0deg) scale(0.95)` },
+    ],
+    {
+      duration: 350,
+      easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+    }
+  );
+
+  animation.onfinish = () => clone.remove();
 }
 
 // Create card element
@@ -548,7 +708,7 @@ function renderTopCard(card: Card, lastColor: string | null) {
 }
 
 // Handle card click
-function handleCardClick(index: number, card: Card) {
+function handleCardClick(index: number, card: Card, sourceEl: HTMLElement) {
   if (gameOver) return; // Don't allow interactions after game over
   if (isPlayPending) return; // Prevent double-play while waiting for server response
   if (isReconnecting) return; // Prevent actions while reconnecting
@@ -556,9 +716,11 @@ function handleCardClick(index: number, card: Card) {
   if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
     // Show color picker for cards that require color selection
     pendingWildCardIndex = index;
+    pendingWildCardEl = sourceEl;
     showColorPicker();
   } else {
     // Play card immediately
+    animateCardToDiscard(sourceEl);
     playCard(index);
   }
 }
@@ -697,14 +859,17 @@ function showColorPicker() {
 function hideColorPicker() {
   document.getElementById("colorPicker")!.classList.add("hidden");
   pendingWildCardIndex = null;
+  pendingWildCardEl = null;
 }
 
 // Show game over
-function showGameOver(winnerName: string) {
+function showGameOver(winnerName: string, showCelebration = true) {
   gameOver = true; // Lock the game board
   hideColorPicker(); // Dismiss any open wild card color picker
   document.getElementById("winnerName")!.textContent = winnerName;
-  document.getElementById("gameOver")!.classList.remove("hidden");
+  const gameOverModal = document.getElementById("gameOver")!;
+  gameOverModal.classList.remove("hidden");
+  gameOverModal.classList.toggle("celebrating", showCelebration);
 }
 
 // Show error toast
@@ -762,15 +927,30 @@ function hideLoading() {
 // Setup event listeners
 function setupEventListeners() {
   // Draw button
-  document.getElementById("drawBtn")!.onclick = () => {
+  const drawBtn = document.getElementById("drawBtn") as HTMLButtonElement;
+  drawBtn.onclick = () => {
     drawCards();
   };
+
+  // Draw pile tap feedback
+  const drawPileStack = document.querySelector(".draw-pile-stack") as HTMLElement | null;
+  function setDrawPileTapped(tapped: boolean) {
+    drawPileStack?.classList.toggle("tapped", tapped);
+  }
+  [drawBtn, drawPileStack].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("pointerdown", () => setDrawPileTapped(true));
+    el.addEventListener("pointerup", () => setDrawPileTapped(false));
+    el.addEventListener("pointerleave", () => setDrawPileTapped(false));
+    el.addEventListener("pointercancel", () => setDrawPileTapped(false));
+  });
 
   // Color picker buttons
   document.querySelectorAll(".color-btn").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       const color = (e.target as HTMLElement).dataset.color;
       if (pendingWildCardIndex !== null && color) {
+        if (pendingWildCardEl) animateCardToDiscard(pendingWildCardEl);
         playCard(pendingWildCardIndex, color);
         hideColorPicker();
       }

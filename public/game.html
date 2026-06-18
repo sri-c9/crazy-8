@@ -83,8 +83,22 @@
   <div id="gameOver" class="modal hidden">
     <div class="modal-overlay"></div>
     <div class="modal-content">
+      <div class="confetti-burst" aria-hidden="true">
+        <div class="confetti" style="--tx:-70px;--ty:-130px;--rot:720deg;background:var(--card-red);animation-delay:0ms"></div>
+        <div class="confetti" style="--tx:70px;--ty:-120px;--rot:-720deg;background:var(--card-blue);animation-delay:40ms"></div>
+        <div class="confetti" style="--tx:-50px;--ty:-150px;--rot:540deg;background:var(--card-green);animation-delay:80ms"></div>
+        <div class="confetti" style="--tx:50px;--ty:-160px;--rot:-540deg;background:var(--card-yellow);animation-delay:120ms"></div>
+        <div class="confetti" style="--tx:-90px;--ty:-90px;--rot:360deg;background:var(--color-primary);animation-delay:160ms"></div>
+        <div class="confetti" style="--tx:90px;--ty:-100px;--rot:-360deg;background:var(--card-red);animation-delay:200ms"></div>
+        <div class="confetti" style="--tx:-30px;--ty:-180px;--rot:810deg;background:var(--card-blue);animation-delay:240ms"></div>
+        <div class="confetti" style="--tx:30px;--ty:-170px;--rot:-810deg;background:var(--card-green);animation-delay:280ms"></div>
+        <div class="confetti" style="--tx:-110px;--ty:-70px;--rot:450deg;background:var(--card-yellow);animation-delay:320ms"></div>
+        <div class="confetti" style="--tx:110px;--ty:-80px;--rot:-450deg;background:var(--color-primary);animation-delay:360ms"></div>
+        <div class="confetti" style="--tx:0px;--ty:-190px;--rot:630deg;background:var(--card-red);animation-delay:400ms"></div>
+        <div class="confetti" style="--tx:0px;--ty:-100px;--rot:-630deg;background:var(--card-blue);animation-delay:440ms"></div>
+      </div>
       <h2>🎉 Game Over!</h2>
-      <p class="winner-text" id="winnerName"></p>
+      <p class="winner-text"><span class="crown-icon">👑</span> <span id="winnerName"></span></p>
       <button id="backToLobbyBtn" class="btn btn-primary">Back to Lobby</button>
     </div>
   </div>
