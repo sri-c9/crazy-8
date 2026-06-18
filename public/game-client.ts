@@ -1,5 +1,6 @@
 // Game client - handles WebSocket connection, rendering, and user interactions
 import { haptic } from "ios-haptics";
+import { seatOpponents } from "./turn-order";
 
 interface Card {
   type: string;
@@ -212,7 +213,7 @@ function renderGameState(state: GameState, playerId: string) {
   wasYourTurn = isYourTurn;
 
   // Render opponents
-  renderOpponents(state.players, state.currentPlayerId, yourPlayerId);
+  renderOpponents(state.players, state.currentPlayerId, yourPlayerId, state.direction);
 
   // Render top card
   renderTopCard(state.topCard, state.lastPlayedColor);
@@ -331,25 +332,32 @@ function renderGameState(state: GameState, playerId: string) {
 function renderOpponents(
   players: Player[],
   currentPlayerId: string,
-  yourId: string
+  yourId: string,
+  direction: number
 ) {
   const container = document.getElementById("opponentsList")!;
   container.innerHTML = "";
 
-  const opponents = players.filter((p) => p.id !== yourId);
-  if (opponents.length === 0) return;
+  // Seat opponents in true rotation order from the local player; the helper
+  // also flags the current player and the player who is up next.
+  const seats = seatOpponents(players, yourId, currentPlayerId, direction);
+  if (seats.length === 0) return;
 
   // Calculate semicircular arc positions (160deg to 20deg, left to right)
   const startAngle = 160; // deg
   const endAngle = 20; // deg
   const totalArc = startAngle - endAngle; // 140 degrees
 
-  opponents.forEach((player, index) => {
+  seats.forEach((seat, index) => {
+    const player = seat.player;
     const div = document.createElement("div");
     div.className = "opponent-node";
     div.dataset.playerId = player.id;
-    if (player.id === currentPlayerId) {
+    if (seat.isCurrent) {
       div.classList.add("current-turn");
+    }
+    if (seat.isNext) {
+      div.classList.add("next-turn");
     }
     if (!player.connected) {
       div.classList.add("disconnected");
@@ -357,10 +365,10 @@ function renderOpponents(
 
     // Calculate angle for this opponent
     let angle: number;
-    if (opponents.length === 1) {
+    if (seats.length === 1) {
       angle = 90; // Center top
     } else {
-      const step = totalArc / (opponents.length - 1);
+      const step = totalArc / (seats.length - 1);
       angle = startAngle - (step * index);
     }
 
@@ -382,6 +390,14 @@ function renderOpponents(
     avatarCircle.className = "opponent-avatar-circle";
     avatarCircle.textContent = player.avatar;
     div.appendChild(avatarCircle);
+
+    // "NEXT" badge on whoever plays immediately after the current player.
+    if (seat.isNext) {
+      const nextBadge = document.createElement("div");
+      nextBadge.className = "next-badge";
+      nextBadge.textContent = "NEXT";
+      div.appendChild(nextBadge);
+    }
 
     const nameDiv = document.createElement("div");
     nameDiv.className = "opponent-name";
