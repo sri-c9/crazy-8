@@ -33,7 +33,13 @@ let ws: WebSocket | null = null;
 let yourPlayerId: string | null = null;
 let roomCode: string | null = null;
 let pendingWildCardIndex: number | null = null;
+let pendingWildCardEl: HTMLElement | null = null;
+let pendingWildTargetPlayerId: string | null = null;
+let pendingTargetCardIndex: number | null = null;
+let pendingTargetCardEl: HTMLElement | null = null;
+let pendingTargetCardType: string | null = null;
 let currentGameState: GameState | null = null;
+let previousGameState: GameState | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 let gameOver = false;
@@ -41,6 +47,18 @@ let isPlayPending = false;
 let isReconnecting = false;
 let previousHandLength = 0;
 let wasYourTurn = false;
+
+// Compare two cards for equality (used for diff-based animations)
+function cardsEqual(a: Card | undefined, b: Card | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.type === b.type &&
+    a.color === b.color &&
+    a.value === b.value &&
+    a.chosenColor === b.chosenColor
+  );
+}
 
 // Safe WebSocket send helper
 function safeSend(data: any) {
@@ -138,6 +156,7 @@ function handleMessage(data: any) {
 
     case "state":
       isPlayPending = false;
+      previousGameState = currentGameState;
       currentGameState = data.gameState;
       renderGameState(data.gameState, data.yourPlayerId);
       break;
@@ -230,6 +249,63 @@ function renderGameState(state: GameState, playerId: string) {
   drawBtn.disabled = !isYourTurn || isPlayPending;
   drawBtn.textContent = state.pendingDraws > 0 ? `Draw +${state.pendingDraws}` : "Draw";
 
+  // Diff-based transient animations (skip on first render)
+  if (previousGameState && yourPlayerId) {
+    const topChanged = !cardsEqual(previousGameState.topCard, state.topCard);
+
+    // Opponent play fly-over
+    if (topChanged) {
+      const prevOpponents = previousGameState.players.filter((p) => p.id !== yourPlayerId);
+      const currOpponents = state.players.filter((p) => p.id !== yourPlayerId);
+      for (const prevOpp of prevOpponents) {
+        const currOpp = currOpponents.find((p) => p.id === prevOpp.id);
+        if (currOpp && currOpp.cardCount < prevOpp.cardCount) {
+          const oppNode = document.querySelector(
+            `.opponent-node[data-player-id="${currOpp.id}"] .opponent-avatar-circle`
+          ) as HTMLElement | null;
+          if (oppNode) animateOpponentPlayToDiscard(oppNode);
+          break;
+        }
+      }
+    }
+
+    // Discard pile pop
+    if (topChanged) {
+      const topCardEl = document.getElementById("topCard")!;
+      topCardEl.classList.remove("discard-pop");
+      void topCardEl.offsetWidth;
+      topCardEl.classList.add("discard-pop");
+      topCardEl.addEventListener("animationend", () => topCardEl.classList.remove("discard-pop"), { once: true });
+    }
+
+    // Direction spin
+    if (previousGameState.direction !== state.direction) {
+      const dirInd = document.getElementById("directionIndicator")!;
+      dirInd.classList.remove("direction-spin");
+      void dirInd.offsetWidth;
+      dirInd.classList.add("direction-spin");
+      dirInd.addEventListener("animationend", () => dirInd.classList.remove("direction-spin"), { once: true });
+    }
+
+    // Pending draws bump
+    if (state.pendingDraws > previousGameState.pendingDraws && isYourTurn) {
+      const pendingAlert = document.getElementById("pendingAlert")!;
+      pendingAlert.classList.remove("pending-bump");
+      void pendingAlert.offsetWidth;
+      pendingAlert.classList.add("pending-bump");
+      pendingAlert.addEventListener("animationend", () => pendingAlert.classList.remove("pending-bump"), { once: true });
+
+      drawBtn.classList.add("draw-pile-flash");
+      drawBtn.addEventListener("animationend", () => drawBtn.classList.remove("draw-pile-flash"), { once: true });
+
+      const drawPileStack = document.querySelector(".draw-pile-stack") as HTMLElement | null;
+      if (drawPileStack) {
+        drawPileStack.classList.add("draw-pile-flash");
+        drawPileStack.addEventListener("animationend", () => drawPileStack.classList.remove("draw-pile-flash"), { once: true });
+      }
+    }
+  }
+
   // Show disconnected player indicator when it's an offline player's turn
   const currentTurnPlayer = state.players.find((p) => p.id === state.currentPlayerId);
   const disconnectedAlert = document.getElementById("disconnectedAlert")!;
@@ -243,7 +319,7 @@ function renderGameState(state: GameState, playerId: string) {
   // Check for winner after rendering all game state (show modal on top of final board)
   if (state.winner) {
     if (state.winner === "__admin__") {
-      showGameOver("Game ended by admin");
+      showGameOver("Game ended by admin", false);
     } else {
       const winner = state.players.find((p) => p.id === state.winner);
       showGameOver((winner ? winner.name : "Unknown player") + " wins!");
@@ -271,6 +347,7 @@ function renderOpponents(
   opponents.forEach((player, index) => {
     const div = document.createElement("div");
     div.className = "opponent-node";
+    div.dataset.playerId = player.id;
     if (player.id === currentPlayerId) {
       div.classList.add("current-turn");
     }
@@ -355,7 +432,7 @@ function renderHand(
       const isPlayable = isYourTurn && canPlayCardClient(card, topCard, state);
       if (isPlayable) {
         cardEl.classList.add("playable");
-        cardEl.onclick = () => handleCardClick(index, card);
+        cardEl.onclick = (e) => handleCardClick(index, card, e.currentTarget as HTMLElement);
       } else {
         cardEl.classList.add("unplayable");
       }
@@ -365,7 +442,7 @@ function renderHand(
       container.appendChild(cardEl);
 
       if (index >= newCardStartIndex) {
-        setDrawAnimation(cardEl);
+        setDrawAnimation(cardEl, index - newCardStartIndex);
       }
     });
   } else {
@@ -380,7 +457,7 @@ function renderHand(
       const isPlayable = isYourTurn && canPlayCardClient(card, topCard, state);
       if (isPlayable) {
         cardEl.classList.add("playable");
-        cardEl.onclick = () => handleCardClick(index, card);
+        cardEl.onclick = (e) => handleCardClick(index, card, e.currentTarget as HTMLElement);
       } else {
         cardEl.classList.add("unplayable");
       }
@@ -410,7 +487,7 @@ function renderHand(
       container.appendChild(cardEl);
 
       if (index >= newCardStartIndex) {
-        setDrawAnimation(cardEl);
+        setDrawAnimation(cardEl, index - newCardStartIndex);
       }
     });
   }
@@ -420,7 +497,7 @@ function renderHand(
 
 // Set draw-from-pile animation on a newly-added card element.
 // Must be called AFTER the element is in the DOM so getBoundingClientRect works.
-function setDrawAnimation(cardEl: HTMLElement) {
+function setDrawAnimation(cardEl: HTMLElement, staggerIndex = 0) {
   const drawBtn = document.getElementById("drawBtn");
   if (drawBtn) {
     const drawBtnRect = drawBtn.getBoundingClientRect();
@@ -430,7 +507,94 @@ function setDrawAnimation(cardEl: HTMLElement) {
     cardEl.style.setProperty("--draw-offset-x", `${offsetX}px`);
     cardEl.style.setProperty("--draw-offset-y", `${offsetY}px`);
   }
+  cardEl.style.setProperty("--draw-stagger", `${staggerIndex * 80}ms`);
   cardEl.classList.add("card-entering");
+}
+
+// Animate a card clone from the player's hand to the discard pile.
+// Purely cosmetic; server state remains authoritative.
+function animateCardToDiscard(sourceEl: HTMLElement): void {
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (typeof Element === "undefined" || !Element.prototype.animate) return;
+
+  const topCard = document.getElementById("topCard");
+  if (!topCard) return;
+
+  const sourceRect = sourceEl.getBoundingClientRect();
+  const targetRect = topCard.getBoundingClientRect();
+  const clone = sourceEl.cloneNode(true) as HTMLElement;
+  clone.style.position = "fixed";
+  clone.style.left = `${sourceRect.left}px`;
+  clone.style.top = `${sourceRect.top}px`;
+  clone.style.width = `${sourceRect.width}px`;
+  clone.style.height = `${sourceRect.height}px`;
+  clone.style.margin = "0";
+  clone.style.zIndex = "1000";
+  clone.style.pointerEvents = "none";
+  document.body.appendChild(clone);
+
+  const deltaX = targetRect.left + targetRect.width / 2 - (sourceRect.left + sourceRect.width / 2);
+  const deltaY = targetRect.top + targetRect.height / 2 - (sourceRect.top + sourceRect.height / 2);
+
+  const animation = clone.animate(
+    [
+      { transform: "translate(0, 0) rotate(0deg) scale(1)" },
+      {
+        transform: `translate(${deltaX * 0.5}px, ${deltaY * 0.3}px) rotate(${deltaX > 0 ? 8 : -8}deg) scale(1.05)`,
+        offset: 0.5,
+      },
+      { transform: `translate(${deltaX}px, ${deltaY}px) rotate(0deg) scale(0.92)` },
+    ],
+    {
+      duration: 350,
+      easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+    }
+  );
+
+  animation.onfinish = () => clone.remove();
+}
+
+// Animate a face-down card from an opponent's avatar to the discard pile.
+function animateOpponentPlayToDiscard(sourceEl: HTMLElement): void {
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (typeof Element === "undefined" || !Element.prototype.animate) return;
+
+  const topCard = document.getElementById("topCard");
+  if (!topCard) return;
+
+  const sourceRect = sourceEl.getBoundingClientRect();
+  const targetRect = topCard.getBoundingClientRect();
+  const rootStyles = getComputedStyle(document.documentElement);
+  const cardWidth = parseFloat(rootStyles.getPropertyValue("--card-width")) || 68;
+  const cardHeight = parseFloat(rootStyles.getPropertyValue("--card-height")) || 100;
+
+  const clone = document.createElement("div");
+  clone.className = "card-back opponent-play-clone";
+  clone.style.width = `${cardWidth}px`;
+  clone.style.height = `${cardHeight}px`;
+  clone.style.left = `${sourceRect.left + sourceRect.width / 2 - cardWidth / 2}px`;
+  clone.style.top = `${sourceRect.top + sourceRect.height / 2 - cardHeight / 2}px`;
+  document.body.appendChild(clone);
+
+  const deltaX = targetRect.left + targetRect.width / 2 - (sourceRect.left + sourceRect.width / 2);
+  const deltaY = targetRect.top + targetRect.height / 2 - (sourceRect.top + sourceRect.height / 2);
+
+  const animation = clone.animate(
+    [
+      { transform: "translate(0, 0) rotate(0deg) scale(1)" },
+      {
+        transform: `translate(${deltaX * 0.6}px, ${deltaY * 0.2}px) rotate(12deg) scale(1.05)`,
+        offset: 0.5,
+      },
+      { transform: `translate(${deltaX}px, ${deltaY}px) rotate(0deg) scale(0.95)` },
+    ],
+    {
+      duration: 350,
+      easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+    }
+  );
+
+  animation.onfinish = () => clone.remove();
 }
 
 // Create card element
@@ -478,6 +642,26 @@ function createCardElement(card: Card): HTMLElement {
     case "swap":
       content = `<span class="card-value">⇅</span><span class="card-type">SWAP</span>`;
       cornerValue = "⇅";
+      break;
+    case "nope":
+      content = `<span class="card-value">🛡</span><span class="card-type">NOPE</span>`;
+      cornerValue = "N";
+      break;
+    case "rotate":
+      content = `<span class="card-value">🔄</span><span class="card-type">ROT</span>`;
+      cornerValue = "R";
+      break;
+    case "steal":
+      content = `<span class="card-value">🦹</span><span class="card-type">STEAL</span>`;
+      cornerValue = "S";
+      break;
+    case "pickswap":
+      content = `<span class="card-value">⇆</span><span class="card-type">SWAP</span>`;
+      cornerValue = "⇆";
+      break;
+    case "wildpickswap":
+      content = `<span class="card-value">⇆</span><span class="card-type">SWAP</span>`;
+      cornerValue = "⇆";
       break;
   }
 
@@ -537,6 +721,26 @@ function renderTopCard(card: Card, lastColor: string | null) {
       content = `<span class="card-value">⇅</span>`;
       cornerValue = "⇅";
       break;
+    case "nope":
+      content = `<span class="card-value">🛡</span>`;
+      cornerValue = "N";
+      break;
+    case "rotate":
+      content = `<span class="card-value">🔄</span>`;
+      cornerValue = "R";
+      break;
+    case "steal":
+      content = `<span class="card-value">🦹</span>`;
+      cornerValue = "S";
+      break;
+    case "pickswap":
+      content = `<span class="card-value">⇆</span>`;
+      cornerValue = "⇆";
+      break;
+    case "wildpickswap":
+      content = `<span class="card-value">⇆</span>`;
+      cornerValue = "⇆";
+      break;
   }
 
   // Add corner numbers
@@ -548,23 +752,32 @@ function renderTopCard(card: Card, lastColor: string | null) {
 }
 
 // Handle card click
-function handleCardClick(index: number, card: Card) {
+function handleCardClick(index: number, card: Card, sourceEl: HTMLElement) {
   if (gameOver) return; // Don't allow interactions after game over
   if (isPlayPending) return; // Prevent double-play while waiting for server response
   if (isReconnecting) return; // Prevent actions while reconnecting
 
-  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
+  if (card.type === "pickswap" || card.type === "wildpickswap") {
+    // Choose target opponent first (then color for the wild variant)
+    pendingTargetCardIndex = index;
+    pendingTargetCardEl = sourceEl;
+    pendingTargetCardType = card.type;
+    showTargetPicker();
+  } else if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
     // Show color picker for cards that require color selection
     pendingWildCardIndex = index;
+    pendingWildCardEl = sourceEl;
+    pendingWildTargetPlayerId = null;
     showColorPicker();
   } else {
     // Play card immediately
-    playCard(index);
+    animateCardToDiscard(sourceEl);
+    playCard({ index });
   }
 }
 
 // Play a card
-function playCard(index: number, chosenColor?: string) {
+function playCard(options: { index: number; chosenColor?: string; targetPlayerId?: string }) {
   if (!ws) return;
 
   isPlayPending = true;
@@ -580,8 +793,9 @@ function playCard(index: number, chosenColor?: string) {
 
   safeSend({
     action: "play",
-    cardIndex: index,
-    chosenColor,
+    cardIndex: options.index,
+    chosenColor: options.chosenColor,
+    targetPlayerId: options.targetPlayerId,
   });
 }
 
@@ -646,19 +860,50 @@ function handleCardEffect(effect: string, targetPlayerId?: string) {
     } else if (effect === "swapped" && targetPlayerId === yourPlayerId) {
       haptic(); // Haptic feedback for being swapped
       showToast("Your hand was swapped!");
+    } else if (effect === "nope") {
+      showToast("🛡 Stack cancelled!");
+    } else if (effect === "rotate") {
+      showToast("🔄 Hands rotated!");
+    } else if (effect === "youStole" && targetPlayerId) {
+      showToast("🦹 You stole a card!");
+    } else if (effect === "stolen" && targetPlayerId === yourPlayerId) {
+      haptic();
+      showToast("🦹 A card was stolen from you!");
     }
   } catch {}
 }
 
+// Numeric value of a plus card for stacking rules on the client.
+function plusCardValueClient(card: Card): number | null {
+  if (card.type === "plus2") return 2;
+  if (card.type === "plus4") return 4;
+  if (card.type === "plus20" || card.type === "plus20color") return 20;
+  return null;
+}
+
 // Client-side validation (matches server logic)
 function canPlayCardClient(card: Card, topCard: Card, state: GameState): boolean {
-  // If pendingDraws > 0, only +cards can be played
+  // If pendingDraws > 0, only higher/equal +cards (or a Nope) can be played.
+  // Examples: +20 can be stacked on +2, but +2 cannot be stacked on +20.
   if (state.pendingDraws > 0) {
-    return card.type === "plus2" || card.type === "plus4" || card.type === "plus20" || card.type === "plus20color";
+    // Nope cancels the stack regardless of value.
+    if (card.type === "nope") {
+      return true;
+    }
+
+    const stackValue = plusCardValueClient(card);
+    const topValue = plusCardValueClient(topCard);
+
+    // Only +cards can be played, and only if their value is >= the top card's value.
+    if (stackValue !== null && topValue !== null) {
+      return stackValue >= topValue;
+    }
+
+    return false;
   }
 
-  // Wild-type cards always playable (wild, plus4, plus20 have no color restrictions)
-  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") return true;
+  // Wild/swap cards always playable (no color restrictions)
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "swap" || card.type === "wildpickswap") return true;
 
   // Reverse limit
   if (card.type === "reverse" && state.reverseStackCount >= 4) {
@@ -680,7 +925,7 @@ function canPlayCardClient(card: Card, topCard: Card, state: GameState): boolean
   }
 
   // Type-matching: same special card type can always be played regardless of color
-  const typeMatchable = ["skip", "reverse", "plus2", "swap", "plus20color"] as const;
+  const typeMatchable = ["skip", "reverse", "plus2", "plus20color", "pickswap", "nope", "rotate", "steal"] as const;
   if (card.type === topCard.type && typeMatchable.includes(card.type as typeof typeMatchable[number])) {
     return true;
   }
@@ -697,14 +942,74 @@ function showColorPicker() {
 function hideColorPicker() {
   document.getElementById("colorPicker")!.classList.add("hidden");
   pendingWildCardIndex = null;
+  pendingWildCardEl = null;
+  pendingWildTargetPlayerId = null;
+}
+
+// Show target picker
+function showTargetPicker() {
+  const picker = document.getElementById("targetPicker")!;
+  const list = document.getElementById("targetList")!;
+  list.innerHTML = "";
+
+  if (!currentGameState || !yourPlayerId) {
+    picker.classList.remove("hidden");
+    return;
+  }
+
+  const opponents = currentGameState.players.filter((p) => p.id !== yourPlayerId);
+  for (const opp of opponents) {
+    const row = document.createElement("div");
+    row.className = "target-row";
+    row.dataset.playerId = opp.id;
+    row.innerHTML = `<span class="target-avatar">${opp.avatar}</span><span class="target-name">${escapeHtml(opp.name)}</span>`;
+    row.addEventListener("click", () => {
+      hideTargetPicker();
+      const index = pendingTargetCardIndex;
+      const el = pendingTargetCardEl;
+      const type = pendingTargetCardType;
+      if (index === null || !el || !type) return;
+
+      if (type === "wildpickswap") {
+        pendingWildCardIndex = index;
+        pendingWildCardEl = el;
+        pendingWildTargetPlayerId = opp.id;
+        showColorPicker();
+      } else {
+        animateCardToDiscard(el);
+        playCard({ index, targetPlayerId: opp.id });
+      }
+    });
+    list.appendChild(row);
+  }
+
+  picker.classList.remove("hidden");
+}
+
+// Hide target picker
+function hideTargetPicker() {
+  document.getElementById("targetPicker")!.classList.add("hidden");
+  pendingTargetCardIndex = null;
+  pendingTargetCardEl = null;
+  pendingTargetCardType = null;
+}
+
+// Escape HTML for safe rendering of player names
+function escapeHtml(str: string): string {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 // Show game over
-function showGameOver(winnerName: string) {
+function showGameOver(winnerName: string, showCelebration = true) {
   gameOver = true; // Lock the game board
   hideColorPicker(); // Dismiss any open wild card color picker
+  hideTargetPicker(); // Dismiss any open target picker
   document.getElementById("winnerName")!.textContent = winnerName;
-  document.getElementById("gameOver")!.classList.remove("hidden");
+  const gameOverModal = document.getElementById("gameOver")!;
+  gameOverModal.classList.remove("hidden");
+  gameOverModal.classList.toggle("celebrating", showCelebration);
 }
 
 // Show error toast
@@ -762,16 +1067,31 @@ function hideLoading() {
 // Setup event listeners
 function setupEventListeners() {
   // Draw button
-  document.getElementById("drawBtn")!.onclick = () => {
+  const drawBtn = document.getElementById("drawBtn") as HTMLButtonElement;
+  drawBtn.onclick = () => {
     drawCards();
   };
+
+  // Draw pile tap feedback
+  const drawPileStack = document.querySelector(".draw-pile-stack") as HTMLElement | null;
+  function setDrawPileTapped(tapped: boolean) {
+    drawPileStack?.classList.toggle("tapped", tapped);
+  }
+  [drawBtn, drawPileStack].forEach((el) => {
+    if (!el) return;
+    el.addEventListener("pointerdown", () => setDrawPileTapped(true));
+    el.addEventListener("pointerup", () => setDrawPileTapped(false));
+    el.addEventListener("pointerleave", () => setDrawPileTapped(false));
+    el.addEventListener("pointercancel", () => setDrawPileTapped(false));
+  });
 
   // Color picker buttons
   document.querySelectorAll(".color-btn").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       const color = (e.target as HTMLElement).dataset.color;
       if (pendingWildCardIndex !== null && color) {
-        playCard(pendingWildCardIndex, color);
+        if (pendingWildCardEl) animateCardToDiscard(pendingWildCardEl);
+        playCard({ index: pendingWildCardIndex, chosenColor: color, targetPlayerId: pendingWildTargetPlayerId ?? undefined });
         hideColorPicker();
       }
     });
@@ -780,6 +1100,11 @@ function setupEventListeners() {
   // Color picker overlay (click to cancel)
   document.getElementById("colorPickerOverlay")?.addEventListener("click", () => {
     hideColorPicker();
+  });
+
+  // Target picker overlay (click to cancel)
+  document.getElementById("targetPickerOverlay")?.addEventListener("click", () => {
+    hideTargetPicker();
   });
 
   // Back to lobby button

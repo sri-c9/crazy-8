@@ -118,7 +118,21 @@
 
   * {
     animation-duration: 0ms !important;
+    animation-delay: 0ms !important;
     transition-duration: 0ms !important;
+  }
+
+  .card.card-entering,
+  #topCard.discard-pop,
+  #directionIndicator.direction-spin,
+  .pending-alert.pending-bump,
+  .draw-pile-flash,
+  .modal.celebrating .confetti {
+    animation: none !important;
+  }
+
+  .draw-pile-stack.tapped {
+    transform: none;
   }
 }
 
@@ -780,15 +794,6 @@ input[type="text"]:focus {
   font-weight: var(--font-weight-semibold);
   font-size: var(--font-size-base);
   box-shadow: var(--shadow-md);
-  animation: shake-once 0.5s;
-}
-
-@keyframes shake-once {
-  0%, 100% { transform: translateX(0); }
-  20% { transform: translateX(-6px); }
-  40% { transform: translateX(6px); }
-  60% { transform: translateX(-4px); }
-  80% { transform: translateX(4px); }
 }
 
 .piles-container {
@@ -944,12 +949,13 @@ input[type="text"]:focus {
 /* Card entering animation (draw from pile) */
 .card.card-entering {
   animation: card-draw-in var(--duration-card-draw) var(--ease-spring);
+  animation-delay: var(--draw-stagger, 0ms);
 }
 
 @keyframes card-draw-in {
   from {
     /* Use individual transform properties so they compose with JS-set transform (fan rotation/position) */
-    translate: var(--draw-offset-x, 0) calc(-1 * var(--draw-offset-y, 0));
+    translate: var(--draw-offset-x, 0) var(--draw-offset-y, 0);
     scale: 0.5;
     opacity: 0;
   }
@@ -1036,6 +1042,65 @@ input[type="text"]:focus {
   opacity: 0.45;
   cursor: not-allowed;
   filter: saturate(0.5);
+}
+
+/* Card play feedback */
+.card.playable:active {
+  filter: brightness(0.92);
+  transition: filter var(--duration-fast);
+}
+
+/* Discard pile pop */
+#topCard.discard-pop {
+  animation: discard-pop 300ms var(--ease-spring);
+}
+
+@keyframes discard-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+/* Direction spin */
+#directionIndicator.direction-spin {
+  animation: direction-spin 450ms var(--ease-expo-out);
+}
+
+@keyframes direction-spin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+/* Pending draws bump */
+.pending-alert.pending-bump {
+  animation: pending-bump 300ms var(--ease-spring);
+}
+
+@keyframes pending-bump {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+
+/* Draw pile tap feedback */
+.draw-pile-stack.tapped {
+  transform: scale(0.92);
+  transition: transform var(--duration-fast) var(--ease-default);
+}
+
+.draw-pile-flash {
+  animation: draw-pile-flash 300ms ease-out;
+}
+
+@keyframes draw-pile-flash {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.4) saturate(1.2); }
+}
+
+/* Opponent play fly-over clone */
+.opponent-play-clone {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
 }
 
 /* ========================================
@@ -1217,6 +1282,50 @@ input[type="text"]:focus {
   margin: var(--space-5) 0;
 }
 
+.crown-icon {
+  display: none;
+}
+
+.modal.celebrating .crown-icon {
+  display: inline;
+}
+
+.confetti-burst {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: -1;
+}
+
+.confetti {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  opacity: 0;
+}
+
+.modal.celebrating .confetti {
+  animation: confetti-pop 800ms var(--ease-expo-out) forwards;
+}
+
+@keyframes confetti-pop {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg) scale(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--tx), var(--ty)) rotate(var(--rot)) scale(1);
+    opacity: 0;
+  }
+}
+
 .color-buttons {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1261,6 +1370,36 @@ input[type="text"]:focus {
 
 .color-btn:active {
   transform: scale(0.88);
+}
+
+.target-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+.target-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-secondary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--duration-fast);
+}
+
+.target-row:hover {
+  background: rgba(0, 122, 255, 0.1);
+}
+
+.target-row .target-avatar {
+  font-size: 24px;
+}
+
+.target-row .target-name {
+  font-weight: var(--font-weight-medium);
 }
 
 /* Desktop: Center Modal */
