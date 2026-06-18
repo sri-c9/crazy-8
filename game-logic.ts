@@ -1,139 +1,16 @@
 // Import types from room-manager
 import { GameStatus, type Room, type Player } from "./room-manager";
 
-// Define card types
-export type CardColor = "red" | "blue" | "green" | "yellow";
+import { type Card, type CardColor, generateCard, randomColor } from "./cards";
+export { type Card, type CardColor, generateCard, randomColor };
 
-export interface NumberCard {
-  type: "number";
-  color: CardColor;
-  value: number;
-}
-
-export interface WildCard {
-  type: "wild";
-  chosenColor: CardColor | null;
-}
-
-export interface Plus2Card {
-  type: "plus2";
-  color: CardColor;
-}
-
-export interface Plus4Card {
-  type: "plus4";
-}
-
-export interface Plus20Card {
-  type: "plus20";
-}
-
-export interface Plus20ColorCard {
-  type: "plus20color";
-  color: CardColor;
-}
-
-export interface SkipCard {
-  type: "skip";
-  color: CardColor;
-}
-
-export interface ReverseCard {
-  type: "reverse";
-  color: CardColor;
-}
-
-export interface SwapCard {
-  type: "swap";
-  color: CardColor;
-}
-
-export type Card =
-  | NumberCard
-  | WildCard
-  | Plus2Card
-  | Plus4Card
-  | Plus20Card
-  | Plus20ColorCard
-  | SkipCard
-  | ReverseCard
-  | SwapCard;
-
-const COLORS: CardColor[] = ["red", "blue", "green", "yellow"];
-const NUMBER_VALUES: number[] = [0, 1, 2, 3, 4, 5, 6, 7, 9];
-
-// Helper to get random color
-function randomColor(): CardColor {
-  return COLORS[Math.floor(Math.random() * COLORS.length)];
-}
-
-// Helper to get random number value
-function randomNumberValue(): number {
-  return NUMBER_VALUES[Math.floor(Math.random() * NUMBER_VALUES.length)];
-}
-
-// Generate random card with proper distribution
-export function generateCard(): Card {
-  const rand = Math.random();
-
-  // 57% number cards (0-7, 9)
-  if (rand < 0.57) {
-    return {
-      type: "number",
-      color: randomColor(),
-      value: randomNumberValue(),
-    };
-  }
-  // 10% wild (8)
-  else if (rand < 0.67) {
-    return {
-      type: "wild",
-      chosenColor: null,
-    };
-  }
-  // 14% +2
-  else if (rand < 0.81) {
-    return {
-      type: "plus2",
-      color: randomColor(),
-    };
-  }
-  // 5% +4
-  else if (rand < 0.86) {
-    return { type: "plus4" };
-  }
-  // 2% +20 (wild)
-  else if (rand < 0.88) {
-    return { type: "plus20" };
-  }
-  // 1% +20 (colored)
-  else if (rand < 0.89) {
-    return {
-      type: "plus20color",
-      color: randomColor(),
-    };
-  }
-  // 4% skip
-  else if (rand < 0.93) {
-    return {
-      type: "skip",
-      color: randomColor(),
-    };
-  }
-  // 4% reverse
-  else if (rand < 0.97) {
-    return {
-      type: "reverse",
-      color: randomColor(),
-    };
-  }
-  // 3% swap
-  else {
-    return {
-      type: "swap",
-      color: randomColor(),
-    };
-  }
+// Numeric value of a plus card, used for stacking rules.
+// +2 < +4 < +20. Wild +20 and colored +20 share the same value.
+function plusCardValue(card: Card): number | null {
+  if (card.type === "plus2") return 2;
+  if (card.type === "plus4") return 4;
+  if (card.type === "plus20" || card.type === "plus20color") return 20;
+  return null;
 }
 
 // Check if card can be played (Phase 2 - basic rules, Phase 3 will extend)
@@ -142,13 +19,27 @@ export function canPlayCard(
   topCard: Card,
   room: Room
 ): boolean {
-  // Phase 3: If pendingDraws > 0, only +cards can be played
+  // Phase 3: If pendingDraws > 0, only higher/equal +cards (or a Nope) can be played.
+  // Examples: +20 can be stacked on +2, but +2 cannot be stacked on +20.
   if (room.pendingDraws > 0) {
-    return card.type === "plus2" || card.type === "plus4" || card.type === "plus20" || card.type === "plus20color";
+    // Nope cancels the stack regardless of value.
+    if (card.type === "nope") {
+      return true;
+    }
+
+    const stackValue = plusCardValue(card);
+    const topValue = plusCardValue(topCard);
+
+    // Only +cards can be played, and only if their value is >= the top card's value.
+    if (stackValue !== null && topValue !== null) {
+      return stackValue >= topValue;
+    }
+
+    return false;
   }
 
-  // Wild-type cards always playable (wild, plus4, plus20 have no color restrictions)
-  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
+  // Wild/swap cards always playable (wild, plus4, plus20, swap, wildpickswap have no color restrictions)
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "swap" || card.type === "wildpickswap") {
     return true;
   }
 
@@ -171,7 +62,7 @@ export function canPlayCard(
   }
 
   // Type-matching: same special card type can always be played regardless of color
-  const typeMatchable = ["skip", "reverse", "plus2", "swap", "plus20color"] as const;
+  const typeMatchable = ["skip", "reverse", "plus2", "plus20color", "pickswap", "nope", "rotate", "steal"] as const;
   if (card.type === topCard.type && typeMatchable.includes(card.type as typeof typeMatchable[number])) {
     return true;
   }
@@ -210,7 +101,12 @@ export function startGame(room: Room): void {
     initialCard.type === "plus20color" ||
     initialCard.type === "skip" ||
     initialCard.type === "reverse" ||
-    initialCard.type === "swap"
+    initialCard.type === "swap" ||
+    initialCard.type === "pickswap" ||
+    initialCard.type === "wildpickswap" ||
+    initialCard.type === "rotate" ||
+    initialCard.type === "steal" ||
+    initialCard.type === "nope"
   );
 
   // Initialize game state
@@ -259,7 +155,8 @@ export function playCard(
   room: Room,
   playerId: string,
   cardIndex: number,
-  chosenColor?: CardColor
+  chosenColor?: CardColor,
+  targetPlayerId?: string,
 ): void {
   // Validate it's player's turn
   const currentPlayer = getCurrentPlayer(room);
@@ -303,6 +200,11 @@ export function playCard(
     room.pendingDraws += 20;
   }
 
+  // Nope: cancel any pending +stack
+  if (card.type === "nope") {
+    room.pendingDraws = 0;
+  }
+
   // Reverse: flip direction, increment counter
   if (card.type === "reverse") {
     room.direction = room.direction === 1 ? -1 : 1;
@@ -310,6 +212,24 @@ export function playCard(
   } else {
     // Reset reverse counter if non-reverse played
     room.reverseStackCount = 0;
+  }
+
+  // Targeted swap cards: exchange hands with chosen opponent
+  if (card.type === "pickswap" || card.type === "wildpickswap") {
+    if (!targetPlayerId) {
+      throw new Error("Must choose a player to swap with");
+    }
+    if (targetPlayerId === playerId) {
+      throw new Error("Cannot swap with yourself");
+    }
+    const targetPlayer = room.players.get(targetPlayerId);
+    if (!targetPlayer) {
+      throw new Error("Target player not found");
+    }
+
+    const tempHand = player.hand;
+    player.hand = targetPlayer.hand;
+    targetPlayer.hand = tempHand;
   }
 
   // Swap: exchange hands with next player
@@ -328,8 +248,35 @@ export function playCard(
     }
   }
 
+  // Rotate: pass every hand one seat in the current direction
+  if (card.type === "rotate") {
+    const playerValues = Array.from(room.players.values());
+    const count = playerValues.length;
+    const oldHands = playerValues.map((p) => p.hand);
+
+    for (let i = 0; i < count; i++) {
+      const sourceIndex = (i - room.direction + count) % count;
+      playerValues[i].hand = oldHands[sourceIndex];
+    }
+  }
+
+  // Steal: take one random card from the next player
+  if (card.type === "steal") {
+    const playerArray = Array.from(room.players.keys());
+    const count = playerArray.length;
+    const nextPlayerIndex = (room.currentPlayerIndex + room.direction + count) % count;
+    const nextPlayerId = playerArray[nextPlayerIndex];
+    const nextPlayer = room.players.get(nextPlayerId);
+
+    if (nextPlayer && nextPlayer.hand.length > 0) {
+      const stolenIndex = Math.floor(Math.random() * nextPlayer.hand.length);
+      const stolenCard = nextPlayer.hand.splice(stolenIndex, 1)[0];
+      player.hand.push(stolenCard);
+    }
+  }
+
   // Update lastPlayedColor for all card types
-  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "wildpickswap") {
     if (!chosenColor) {
       throw new Error("Must choose a color");
     }

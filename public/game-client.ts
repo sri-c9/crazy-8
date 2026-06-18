@@ -34,6 +34,10 @@ let yourPlayerId: string | null = null;
 let roomCode: string | null = null;
 let pendingWildCardIndex: number | null = null;
 let pendingWildCardEl: HTMLElement | null = null;
+let pendingWildTargetPlayerId: string | null = null;
+let pendingTargetCardIndex: number | null = null;
+let pendingTargetCardEl: HTMLElement | null = null;
+let pendingTargetCardType: string | null = null;
 let currentGameState: GameState | null = null;
 let previousGameState: GameState | null = null;
 let reconnectAttempts = 0;
@@ -639,6 +643,26 @@ function createCardElement(card: Card): HTMLElement {
       content = `<span class="card-value">⇅</span><span class="card-type">SWAP</span>`;
       cornerValue = "⇅";
       break;
+    case "nope":
+      content = `<span class="card-value">🛡</span><span class="card-type">NOPE</span>`;
+      cornerValue = "N";
+      break;
+    case "rotate":
+      content = `<span class="card-value">🔄</span><span class="card-type">ROT</span>`;
+      cornerValue = "R";
+      break;
+    case "steal":
+      content = `<span class="card-value">🦹</span><span class="card-type">STEAL</span>`;
+      cornerValue = "S";
+      break;
+    case "pickswap":
+      content = `<span class="card-value">⇆</span><span class="card-type">SWAP</span>`;
+      cornerValue = "⇆";
+      break;
+    case "wildpickswap":
+      content = `<span class="card-value">⇆</span><span class="card-type">SWAP</span>`;
+      cornerValue = "⇆";
+      break;
   }
 
   // Add corner numbers
@@ -697,6 +721,26 @@ function renderTopCard(card: Card, lastColor: string | null) {
       content = `<span class="card-value">⇅</span>`;
       cornerValue = "⇅";
       break;
+    case "nope":
+      content = `<span class="card-value">🛡</span>`;
+      cornerValue = "N";
+      break;
+    case "rotate":
+      content = `<span class="card-value">🔄</span>`;
+      cornerValue = "R";
+      break;
+    case "steal":
+      content = `<span class="card-value">🦹</span>`;
+      cornerValue = "S";
+      break;
+    case "pickswap":
+      content = `<span class="card-value">⇆</span>`;
+      cornerValue = "⇆";
+      break;
+    case "wildpickswap":
+      content = `<span class="card-value">⇆</span>`;
+      cornerValue = "⇆";
+      break;
   }
 
   // Add corner numbers
@@ -713,20 +757,27 @@ function handleCardClick(index: number, card: Card, sourceEl: HTMLElement) {
   if (isPlayPending) return; // Prevent double-play while waiting for server response
   if (isReconnecting) return; // Prevent actions while reconnecting
 
-  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
+  if (card.type === "pickswap" || card.type === "wildpickswap") {
+    // Choose target opponent first (then color for the wild variant)
+    pendingTargetCardIndex = index;
+    pendingTargetCardEl = sourceEl;
+    pendingTargetCardType = card.type;
+    showTargetPicker();
+  } else if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") {
     // Show color picker for cards that require color selection
     pendingWildCardIndex = index;
     pendingWildCardEl = sourceEl;
+    pendingWildTargetPlayerId = null;
     showColorPicker();
   } else {
     // Play card immediately
     animateCardToDiscard(sourceEl);
-    playCard(index);
+    playCard({ index });
   }
 }
 
 // Play a card
-function playCard(index: number, chosenColor?: string) {
+function playCard(options: { index: number; chosenColor?: string; targetPlayerId?: string }) {
   if (!ws) return;
 
   isPlayPending = true;
@@ -742,8 +793,9 @@ function playCard(index: number, chosenColor?: string) {
 
   safeSend({
     action: "play",
-    cardIndex: index,
-    chosenColor,
+    cardIndex: options.index,
+    chosenColor: options.chosenColor,
+    targetPlayerId: options.targetPlayerId,
   });
 }
 
@@ -808,19 +860,50 @@ function handleCardEffect(effect: string, targetPlayerId?: string) {
     } else if (effect === "swapped" && targetPlayerId === yourPlayerId) {
       haptic(); // Haptic feedback for being swapped
       showToast("Your hand was swapped!");
+    } else if (effect === "nope") {
+      showToast("🛡 Stack cancelled!");
+    } else if (effect === "rotate") {
+      showToast("🔄 Hands rotated!");
+    } else if (effect === "youStole" && targetPlayerId) {
+      showToast("🦹 You stole a card!");
+    } else if (effect === "stolen" && targetPlayerId === yourPlayerId) {
+      haptic();
+      showToast("🦹 A card was stolen from you!");
     }
   } catch {}
 }
 
+// Numeric value of a plus card for stacking rules on the client.
+function plusCardValueClient(card: Card): number | null {
+  if (card.type === "plus2") return 2;
+  if (card.type === "plus4") return 4;
+  if (card.type === "plus20" || card.type === "plus20color") return 20;
+  return null;
+}
+
 // Client-side validation (matches server logic)
 function canPlayCardClient(card: Card, topCard: Card, state: GameState): boolean {
-  // If pendingDraws > 0, only +cards can be played
+  // If pendingDraws > 0, only higher/equal +cards (or a Nope) can be played.
+  // Examples: +20 can be stacked on +2, but +2 cannot be stacked on +20.
   if (state.pendingDraws > 0) {
-    return card.type === "plus2" || card.type === "plus4" || card.type === "plus20" || card.type === "plus20color";
+    // Nope cancels the stack regardless of value.
+    if (card.type === "nope") {
+      return true;
+    }
+
+    const stackValue = plusCardValueClient(card);
+    const topValue = plusCardValueClient(topCard);
+
+    // Only +cards can be played, and only if their value is >= the top card's value.
+    if (stackValue !== null && topValue !== null) {
+      return stackValue >= topValue;
+    }
+
+    return false;
   }
 
-  // Wild-type cards always playable (wild, plus4, plus20 have no color restrictions)
-  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20") return true;
+  // Wild/swap cards always playable (no color restrictions)
+  if (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "swap" || card.type === "wildpickswap") return true;
 
   // Reverse limit
   if (card.type === "reverse" && state.reverseStackCount >= 4) {
@@ -842,7 +925,7 @@ function canPlayCardClient(card: Card, topCard: Card, state: GameState): boolean
   }
 
   // Type-matching: same special card type can always be played regardless of color
-  const typeMatchable = ["skip", "reverse", "plus2", "swap", "plus20color"] as const;
+  const typeMatchable = ["skip", "reverse", "plus2", "plus20color", "pickswap", "nope", "rotate", "steal"] as const;
   if (card.type === topCard.type && typeMatchable.includes(card.type as typeof typeMatchable[number])) {
     return true;
   }
@@ -860,12 +943,69 @@ function hideColorPicker() {
   document.getElementById("colorPicker")!.classList.add("hidden");
   pendingWildCardIndex = null;
   pendingWildCardEl = null;
+  pendingWildTargetPlayerId = null;
+}
+
+// Show target picker
+function showTargetPicker() {
+  const picker = document.getElementById("targetPicker")!;
+  const list = document.getElementById("targetList")!;
+  list.innerHTML = "";
+
+  if (!currentGameState || !yourPlayerId) {
+    picker.classList.remove("hidden");
+    return;
+  }
+
+  const opponents = currentGameState.players.filter((p) => p.id !== yourPlayerId);
+  for (const opp of opponents) {
+    const row = document.createElement("div");
+    row.className = "target-row";
+    row.dataset.playerId = opp.id;
+    row.innerHTML = `<span class="target-avatar">${opp.avatar}</span><span class="target-name">${escapeHtml(opp.name)}</span>`;
+    row.addEventListener("click", () => {
+      hideTargetPicker();
+      const index = pendingTargetCardIndex;
+      const el = pendingTargetCardEl;
+      const type = pendingTargetCardType;
+      if (index === null || !el || !type) return;
+
+      if (type === "wildpickswap") {
+        pendingWildCardIndex = index;
+        pendingWildCardEl = el;
+        pendingWildTargetPlayerId = opp.id;
+        showColorPicker();
+      } else {
+        animateCardToDiscard(el);
+        playCard({ index, targetPlayerId: opp.id });
+      }
+    });
+    list.appendChild(row);
+  }
+
+  picker.classList.remove("hidden");
+}
+
+// Hide target picker
+function hideTargetPicker() {
+  document.getElementById("targetPicker")!.classList.add("hidden");
+  pendingTargetCardIndex = null;
+  pendingTargetCardEl = null;
+  pendingTargetCardType = null;
+}
+
+// Escape HTML for safe rendering of player names
+function escapeHtml(str: string): string {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 // Show game over
 function showGameOver(winnerName: string, showCelebration = true) {
   gameOver = true; // Lock the game board
   hideColorPicker(); // Dismiss any open wild card color picker
+  hideTargetPicker(); // Dismiss any open target picker
   document.getElementById("winnerName")!.textContent = winnerName;
   const gameOverModal = document.getElementById("gameOver")!;
   gameOverModal.classList.remove("hidden");
@@ -951,7 +1091,7 @@ function setupEventListeners() {
       const color = (e.target as HTMLElement).dataset.color;
       if (pendingWildCardIndex !== null && color) {
         if (pendingWildCardEl) animateCardToDiscard(pendingWildCardEl);
-        playCard(pendingWildCardIndex, color);
+        playCard({ index: pendingWildCardIndex, chosenColor: color, targetPlayerId: pendingWildTargetPlayerId ?? undefined });
         hideColorPicker();
       }
     });
@@ -960,6 +1100,11 @@ function setupEventListeners() {
   // Color picker overlay (click to cancel)
   document.getElementById("colorPickerOverlay")?.addEventListener("click", () => {
     hideColorPicker();
+  });
+
+  // Target picker overlay (click to cancel)
+  document.getElementById("targetPickerOverlay")?.addEventListener("click", () => {
+    hideTargetPicker();
   });
 
   // Back to lobby button

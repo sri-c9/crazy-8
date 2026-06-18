@@ -201,7 +201,7 @@ feature/* or bugfix/* (active work)
 ## Game Rules (for context when implementing logic)
 
 **"Insane" rules:**
-- **Plus stacking:** Any +card (+2, +4, +20) can deflect to the next player by playing ANY +card, regardless of color
+- **Plus stacking:** A +card can deflect a pending stack only if its value is greater than or equal to the top +card's value (+2 < +4 < +20; color is ignored). +20 can stack on +2, but +2 cannot stack on +20
 - **Reverse limit:** Max 4 reverse cards can stack in a row
 - **Skip behavior:** Skip cards skip the next player (advance by 2 positions)
 - **Infinite deck:** Server generates random cards on draw — no reshuffling needed

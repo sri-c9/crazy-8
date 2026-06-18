@@ -1,4 +1,4 @@
-import type { Card } from "./game-logic";
+import type { Card } from "./cards";
 import { startGame } from "./game-logic";
 
 interface Player {
@@ -221,10 +221,7 @@ function getRoomPlayerList(roomCode: string): PlayerListItem[] {
   if (!room) return [];
 
   return Array.from(room.players.values()).map((player) => ({
-    id: player.id,
-    name: player.name,
-    avatar: player.avatar,
-    connected: player.connected,
+    ...player,
     isHost: player.id === room.hostId,
   }));
 }

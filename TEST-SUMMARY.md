@@ -105,19 +105,24 @@ Total execution time: ~45 seconds
 ## Running the Tests
 
 ```bash
-# Run all tests (headless)
+# Run unit tests (Bun built-in test runner, no browser needed)
 bun test
+# or
+bun run test:unit
 
-# Run tests with visible browser
-bun test:headed
+# Run E2E / integration tests (headless)
+bun run test
 
-# Run specific test file
+# Run E2E tests with visible browser
+bun run test:ui
+
+# Run specific E2E test file
 npx playwright test tests/security.spec.ts
 
-# Run with detailed output
+# Run E2E tests with detailed output
 npx playwright test --reporter=list
 
-# Debug mode
+# Debug E2E tests
 npx playwright test --debug
 ```
 
