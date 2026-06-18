@@ -32,6 +32,12 @@ ngrok http 3000
 
 4. Open the URL on your phones and play!
 
+### Deploy to Render (optional)
+
+You can also host the game publicly on Render instead of using ngrok. See [RENDER.md](./RENDER.md) for the full setup.
+
+**Note:** Render's free tier is convenient but spins down after inactivity, which will clear in-memory rooms. For always-on games, use Render's paid plan or stick with local + ngrok.
+
 ## Game Rules
 
 ### Card Types
@@ -85,7 +91,7 @@ crazy-8/
 - **Language**: TypeScript (Bun-native)
 - **Frontend**: TypeScript (compiled to JS via Bun's bundler)
 - **Real-time**: Native WebSocket
-- **Deployment**: Local + ngrok tunnel
+- **Deployment**: Local + ngrok tunnel, or Render via Docker
 
 ## License
 

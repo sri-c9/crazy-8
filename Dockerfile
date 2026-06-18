@@ -18,8 +18,8 @@ COPY . .
 # Build browser bundles (public/dist/*)
 RUN bun run build
 
-# Port the Bun server listens on. Koyeb will map its public HTTP traffic to this
-# container port automatically when you add a route on port 3000.
+# Port the Bun server listens on. Docker platforms (e.g. Render) will map their
+# public HTTP traffic to this container port automatically.
 EXPOSE 3000
 ENV PORT=3000
 

@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: insane-crazy-8
+    runtime: docker
+    branch: main
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ADMIN_KEY
+        generateValue: true

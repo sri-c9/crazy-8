@@ -958,4 +958,4 @@ setInterval(() => {
   }
 }, CLEANUP_INTERVAL);
 
-console.log(`Server running on http://localhost:${server.port}`);
+console.log(`Server running on port ${server.port}`);
