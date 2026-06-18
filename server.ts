@@ -14,15 +14,8 @@ import {
   touchRoom,
   GameStatus,
 } from "./room-manager";
-import {
-  playCard,
-  drawCard,
-  getCurrentPlayer,
-  getTopCard,
-  advanceTurn,
-  type Card,
-  type CardColor,
-} from "./game-logic";
+import { playCard, drawCard, getCurrentPlayer, getTopCard, advanceTurn } from "./game-logic";
+import { type Card, type CardColor } from "./cards";
 
 interface WebSocketData {
   playerId: string | null;
@@ -40,6 +33,7 @@ interface IncomingMessage {
   sessionToken?: string;
   cardIndex?: number;
   chosenColor?: CardColor;
+  targetPlayerId?: string;
 }
 
 // Validation helpers
@@ -84,6 +78,7 @@ function safeErrorMessage(error: unknown): string {
       "must be a non-negative integer", "Room not found", "Room is full",
       "Game already started", "Player not found", "Not your turn",
       "Invalid card", "Cannot play", "Must choose a color",
+      "Must choose a player to swap with", "Cannot swap with yourself", "Target player not found",
       "Invalid color choice", "Not in a room", "Game is not in progress",
       "Invalid card index", "not the host", "at least", "Unknown action",
       "You are disconnected", "Invalid session",
@@ -500,6 +495,7 @@ const handleRejoin = (
   try {
     const roomCode = validateString(msg.roomCode, "roomCode").toUpperCase();
     const playerId = validateString(msg.playerId, "playerId");
+    const token = typeof msg.sessionToken === "string" ? msg.sessionToken : "";
 
     // Cancel disconnect timers
     const skipTimer = turnSkipTimers.get(playerId);
@@ -514,10 +510,9 @@ const handleRejoin = (
     }
     disconnectInfo.delete(playerId);
 
-    // Reconnect the player
-    reconnectPlayer(roomCode, playerId);
-
-    // Get the room to retrieve player info
+    // Look up the room/player and validate the session token BEFORE mutating state.
+    // A missing room is not a server crash — it's usually a stale rejoin attempt
+    // (e.g. room was deleted), so we just send a clean error to the client.
     const room = getRoom(roomCode);
     if (!room) {
       ws.send(JSON.stringify({ type: "error", message: "Room not found" }));
@@ -531,11 +526,13 @@ const handleRejoin = (
     }
 
     // Validate session token to prevent impersonation
-    const token = typeof msg.sessionToken === "string" ? msg.sessionToken : "";
     if (player.sessionToken !== token) {
       ws.send(JSON.stringify({ type: "error", message: "Invalid session" }));
       return;
     }
+
+    // Reconnect the player
+    reconnectPlayer(roomCode, playerId);
 
     // Update WebSocket data
     ws.data.playerId = playerId;
@@ -702,7 +699,7 @@ const handlePlayCard = (
     }
 
     const card = player.hand[cardIndex];
-    if (card && (card.type === "wild" || card.type === "plus4" || card.type === "plus20")) {
+    if (card && (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "wildpickswap")) {
       if (!msg.chosenColor) {
         ws.send(JSON.stringify({ type: "error", message: "Must choose a color for this card" }));
         return;
@@ -716,13 +713,36 @@ const handlePlayCard = (
 
     // Get the card and next player info before playCard modifies state
     let swapTargetId: string | null = null;
+    let stealTargetId: string | null = null;
     let skippedPlayerIds: string[] = [];
+
+    if (card.type === "pickswap" || card.type === "wildpickswap") {
+      if (!msg.targetPlayerId || typeof msg.targetPlayerId !== "string" || msg.targetPlayerId.trim() === "") {
+        ws.send(JSON.stringify({ type: "error", message: "Must choose a player to swap with" }));
+        return;
+      }
+      const targetPlayerId = msg.targetPlayerId.trim();
+      if (targetPlayerId === playerId) {
+        ws.send(JSON.stringify({ type: "error", message: "Cannot swap with yourself" }));
+        return;
+      }
+      if (!room.players.has(targetPlayerId)) {
+        ws.send(JSON.stringify({ type: "error", message: "Target player not found" }));
+        return;
+      }
+      swapTargetId = targetPlayerId;
+    }
 
     if (card.type === "swap") {
       const playerArray = Array.from(room.players.keys());
       const count = playerArray.length;
       const nextPlayerIndex = (room.currentPlayerIndex + room.direction + count) % count;
       swapTargetId = playerArray[nextPlayerIndex];
+    } else if (card.type === "steal") {
+      const playerArray = Array.from(room.players.keys());
+      const count = playerArray.length;
+      const nextPlayerIndex = (room.currentPlayerIndex + room.direction + count) % count;
+      stealTargetId = playerArray[nextPlayerIndex];
     }
 
     if (card.type === "skip") {
@@ -734,7 +754,7 @@ const handlePlayCard = (
       skippedPlayerIds = [playerArray[skippedIndex1], playerArray[skippedIndex2]];
     }
 
-    playCard(room, playerId, cardIndex, msg.chosenColor);
+    playCard(room, playerId, cardIndex, msg.chosenColor, msg.targetPlayerId);
 
     // Send skip effect notifications
     if (skippedPlayerIds.length > 0) {
@@ -751,6 +771,22 @@ const handlePlayCard = (
       server.publish(
         roomCode,
         JSON.stringify({ type: "cardEffect", effect: "reversed" }),
+      );
+    }
+
+    // Send nope effect notification
+    if (card.type === "nope") {
+      server.publish(
+        roomCode,
+        JSON.stringify({ type: "cardEffect", effect: "nope" }),
+      );
+    }
+
+    // Send rotate effect notification
+    if (card.type === "rotate") {
+      server.publish(
+        roomCode,
+        JSON.stringify({ type: "cardEffect", effect: "rotate" }),
       );
     }
 
@@ -781,9 +817,34 @@ const handlePlayCard = (
       }
     }
 
+    // Send steal effect notifications
+    if (stealTargetId) {
+      const playerWs = playerConnections.get(playerId);
+      if (playerWs) {
+        playerWs.send(
+          JSON.stringify({
+            type: "cardEffect",
+            effect: "youStole",
+            targetPlayerId: stealTargetId,
+          }),
+        );
+      }
+
+      const targetWs = playerConnections.get(stealTargetId);
+      if (targetWs) {
+        targetWs.send(
+          JSON.stringify({
+            type: "cardEffect",
+            effect: "stolen",
+            targetPlayerId: playerId,
+          }),
+        );
+      }
+    }
+
     // Determine winner — playCard() already sets room.status to finished
     // when a player empties their hand, so just check status here.
-    const winner = room.status === GameStatus.finished ? playerId : null;
+    const winner = (room.status as GameStatus) === GameStatus.finished ? playerId : null;
 
     // Broadcast updated state
     broadcastGameState(roomCode, winner);

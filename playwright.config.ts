@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
+  testMatch: '**/*.spec.ts',
   // Run tests sequentially since server has shared in-memory state
   workers: 1,
   // Retry once for WebSocket timing flakiness

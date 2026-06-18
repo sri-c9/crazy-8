@@ -1,0 +1,14 @@
+node_modules
+.git
+.gitignore
+.github
+.env
+.env.*
+.vscode
+.idea
+docs
+tests
+playwright-report
+test-results
+*.md
+!README.md
