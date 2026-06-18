@@ -150,6 +150,7 @@ body {
   font-family: var(--font-family);
   background: var(--color-background);
   min-height: 100vh;
+  min-height: 100dvh; /* avoids reflow as the mobile address bar shows/hides */
   display: flex;
   justify-content: center;
   align-items: center;
@@ -627,6 +628,7 @@ input[type="text"]:focus {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-height: 100dvh; /* avoids reflow as the mobile address bar shows/hides */
   padding: 0;
   overflow: hidden;
   position: relative;
@@ -644,8 +646,10 @@ input[type="text"]:focus {
   align-items: center;
   padding: var(--space-4) var(--space-5);
   padding-top: calc(env(safe-area-inset-top, 0px) + var(--space-4));
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(12px);
+  /* Solid translucent fill instead of backdrop-filter: blur() — the blur was
+     composited every frame over the felt, which iOS rasterizes at low
+     resolution (whole board looked soft/janky). */
+  background: rgba(20, 38, 28, 0.85);
 }
 
 .room-badge {
@@ -714,7 +718,6 @@ input[type="text"]:focus {
   pointer-events: all;
   transition: left var(--duration-normal) var(--ease-default),
               top var(--duration-normal) var(--ease-default);
-  will-change: left, top;
 }
 
 .opponent-avatar-circle {
@@ -870,7 +873,6 @@ input[type="text"]:focus {
   font-size: var(--font-size-base);
   cursor: pointer;
   transition: background var(--duration-fast), transform var(--duration-fast);
-  backdrop-filter: blur(8px);
   font-family: var(--font-family);
   min-height: 44px;
 }
@@ -895,10 +897,9 @@ input[type="text"]:focus {
   left: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.45);
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-full);
-  backdrop-filter: blur(4px);
 }
 
 .direction-arrow {
@@ -1104,12 +1105,98 @@ input[type="text"]:focus {
 }
 
 /* ========================================
+   Special Card Effects (swap / rotate / reverse)
+   Cosmetic overlays animated via the Web Animations API.
+   ======================================== */
+
+/* Travelling fanned stack of face-down cards */
+.fx-hand-stack {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 42px;
+  height: 60px;
+  z-index: 1500;
+  pointer-events: none;
+  will-change: transform, opacity;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.4));
+}
+
+.fx-hand-stack i {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #1E3A8A 0%, #1D4ED8 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.28);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.07),
+    0 0 14px var(--fx-tint, rgba(255, 255, 255, 0.45));
+  transform-origin: bottom center;
+}
+
+.fx-hand-stack i:nth-child(1) {
+  transform: rotate(-10deg) translateY(2px);
+}
+
+.fx-hand-stack i:nth-child(2) {
+  transform: rotate(0deg);
+}
+
+.fx-hand-stack i:nth-child(3) {
+  transform: rotate(10deg) translateY(2px);
+}
+
+.fx-hand-stack::after {
+  content: '8';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: var(--font-weight-bold);
+  color: rgba(255, 255, 255, 0.2);
+}
+
+/* Endpoint glow pulse on a player's avatar or the hand area */
+.opponent-avatar-circle.fx-endpoint-glow,
+.hand-area.fx-endpoint-glow {
+  animation: fx-endpoint-glow 720ms var(--ease-expo-out);
+}
+
+@keyframes fx-endpoint-glow {
+  0% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  35% {
+    box-shadow: 0 0 26px 7px var(--fx-glow, rgba(255, 204, 0, 0.85));
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* Expanding ring pulse from the board center */
+.fx-ring-pulse {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  border: 3px solid var(--fx-glow, rgba(255, 204, 0, 0.8));
+  z-index: 1400;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* ========================================
    Hand Area
    ======================================== */
 
 .hand-area {
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(12px);
+  /* Solid translucent fill instead of backdrop-filter: blur() (see .top-bar). */
+  background: rgba(20, 38, 28, 0.88);
   padding: var(--space-4) var(--space-5);
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-4));
   position: relative;
@@ -1224,6 +1311,8 @@ input[type="text"]:focus {
   width: 100%;
   height: 100%;
   background: rgba(0, 0, 0, 0.5);
+  /* Transient overlay only — blur is affordable here. -webkit- prefix required by Safari. */
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   opacity: 0;
   transition: opacity var(--duration-normal);
@@ -1253,8 +1342,8 @@ input[type="text"]:focus {
 }
 
 .color-picker-content {
-  background: rgba(30, 30, 30, 0.95);
-  backdrop-filter: blur(12px);
+  /* Background is 95% opaque, so backdrop blur was invisible — dropped it. */
+  background: rgba(30, 30, 30, 0.97);
 }
 
 .color-picker-content h3 {
@@ -1432,6 +1521,8 @@ input[type="text"]:focus {
   width: 100%;
   height: 100%;
   background: rgba(0, 0, 0, 0.7);
+  /* Transient overlay only. -webkit- prefix required by Safari. */
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
