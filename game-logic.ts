@@ -106,6 +106,8 @@ export function startGame(room: Room): void {
     initialCard.type === "wildpickswap" ||
     initialCard.type === "rotate" ||
     initialCard.type === "steal" ||
+    initialCard.type === "luckyhand" ||
+    initialCard.type === "godmode" ||
     initialCard.type === "nope"
   );
 
@@ -115,6 +117,8 @@ export function startGame(room: Room): void {
   room.direction = 1;
   room.pendingDraws = 0;
   room.reverseStackCount = 0;
+  room.luckyDrawPlayerId = null;
+  room.revealHandsOwnerId = null;
 
   if (initialCard.type === "wild") {
     room.lastPlayedColor = randomColor(); // Random color for initial wild
