@@ -1,8 +1,34 @@
 // Import types from room-manager
 import { GameStatus, type Room, type Player } from "./room-manager";
 
-import { type Card, type CardColor, generateCard, generateBoostedCard, randomColor } from "./cards";
-export { type Card, type CardColor, generateCard, generateBoostedCard, randomColor };
+import { type Card, type CardColor, type GodPower, generateCard, generateBoostedCard, randomColor } from "./cards";
+export { type Card, type CardColor, type GodPower, generateCard, generateBoostedCard, randomColor };
+
+// God Mode — Big Bang: pool every hand, shuffle, re-deal preserving hand sizes.
+function bigBang(room: Room): void {
+  const players = Array.from(room.players.values());
+  const sizes = players.map((p) => p.hand.length);
+  const pool: Card[] = [];
+  for (const p of players) pool.push(...p.hand);
+  // Fisher-Yates shuffle.
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  let idx = 0;
+  players.forEach((p, k) => {
+    p.hand = pool.slice(idx, idx + sizes[k]);
+    idx += sizes[k];
+  });
+}
+
+// God Mode — Reincarnation: incinerate every hand, deal everyone a fresh 7.
+function reincarnation(room: Room): void {
+  for (const p of room.players.values()) {
+    p.hand = [];
+    for (let i = 0; i < 7; i++) p.hand.push(generateCard());
+  }
+}
 
 // Numeric value of a plus card, used for stacking rules.
 // +2 < +4 < +20. Wild +20 and colored +20 share the same value.
@@ -174,6 +200,7 @@ export function playCard(
   cardIndex: number,
   chosenColor?: CardColor,
   targetPlayerId?: string,
+  godPower?: GodPower,
 ): void {
   // Validate it's player's turn
   const currentPlayer = getCurrentPlayer(room);
@@ -185,6 +212,11 @@ export function playCard(
   // is the (boosted) draw — reject any further play until that draw happens.
   if (room.luckyDrawPlayerId === playerId) {
     throw new Error("You must draw after Lucky Hand");
+  }
+
+  // All-Seeing Eye lasts one lap: clear it when the owner takes their next action.
+  if (room.revealHandsOwnerId === playerId) {
+    room.revealHandsOwnerId = null;
   }
 
   const player = room.players.get(playerId);
@@ -298,6 +330,19 @@ export function playCard(
     }
   }
 
+  // God Mode: resolve one table-wide power (affects everyone, caster included).
+  if (card.type === "godmode") {
+    if (godPower === "allSeeingEye") {
+      room.revealHandsOwnerId = playerId;
+    } else if (godPower === "bigBang") {
+      bigBang(room);
+    } else if (godPower === "reincarnation") {
+      reincarnation(room);
+    } else {
+      throw new Error("Must choose a God Mode power");
+    }
+  }
+
   // Update lastPlayedColor for all card types
   if (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "wildpickswap") {
     if (!chosenColor) {
@@ -338,6 +383,11 @@ export function drawCard(room: Room, playerId: string): Card[] {
   const player = room.players.get(playerId);
   if (!player) {
     throw new Error("Player not found");
+  }
+
+  // All-Seeing Eye lasts one lap: clear it when the owner takes their next action.
+  if (room.revealHandsOwnerId === playerId) {
+    room.revealHandsOwnerId = null;
   }
 
   const drawnCards: Card[] = [];
