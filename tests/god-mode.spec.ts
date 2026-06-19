@@ -40,7 +40,7 @@ test('God Mode power picker opens and a power resolves', async ({ browser }) => 
 
     // Picker closes, effect toast appears, no error toast is shown, and hands are revealed.
     await expect(host.page.locator('#godPowerPicker')).toBeHidden();
-    await expect(host.page.getByText('All-Seeing Eye')).toBeVisible();
+    await expect(host.page.getByText('👁 All-Seeing Eye — all hands revealed!')).toBeVisible();
     await expect(host.page.locator('.toast.error')).toHaveCount(0);
     await expect(host.page.locator('.opponent-revealed-hand .mini-card').first()).toBeVisible();
   } finally {
