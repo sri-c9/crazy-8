@@ -1,8 +1,8 @@
 // Import types from room-manager
 import { GameStatus, type Room, type Player } from "./room-manager";
 
-import { type Card, type CardColor, generateCard, randomColor } from "./cards";
-export { type Card, type CardColor, generateCard, randomColor };
+import { type Card, type CardColor, generateCard, generateBoostedCard, randomColor } from "./cards";
+export { type Card, type CardColor, generateCard, generateBoostedCard, randomColor };
 
 // Numeric value of a plus card, used for stacking rules.
 // +2 < +4 < +20. Wild +20 and colored +20 share the same value.
@@ -181,6 +181,12 @@ export function playCard(
     throw new Error("Not your turn");
   }
 
+  // Lucky Hand: after playing it the turn stays put, but the only legal action
+  // is the (boosted) draw — reject any further play until that draw happens.
+  if (room.luckyDrawPlayerId === playerId) {
+    throw new Error("You must draw after Lucky Hand");
+  }
+
   const player = room.players.get(playerId);
   if (!player) {
     throw new Error("Player not found");
@@ -308,8 +314,11 @@ export function playCard(
     return; // Don't advance turn if game over
   }
 
-  // Advance turn: skip cards advance by 3, others advance by 1
-  if (card.type === "skip") {
+  // Advance turn: Lucky Hand keeps the turn (the boosted draw advances it),
+  // skip cards advance by 3, everything else advances by 1.
+  if (card.type === "luckyhand") {
+    room.luckyDrawPlayerId = playerId;
+  } else if (card.type === "skip") {
     const playerArray = Array.from(room.players.keys());
     const count = playerArray.length;
     room.currentPlayerIndex =
@@ -343,11 +352,15 @@ export function drawCard(room: Room, playerId: string): Card[] {
     }
     room.pendingDraws = 0; // Reset after drawing
   } else {
-    // Normal single draw
-    const card = generateCard();
+    // Single draw — boosted (~90% special) if a Lucky Hand draw is pending.
+    const useBoost = room.luckyDrawPlayerId === playerId;
+    const card = useBoost ? generateBoostedCard() : generateCard();
     player.hand.push(card);
     drawnCards.push(card);
   }
+
+  // A Lucky Hand boost is consumed by exactly one draw.
+  room.luckyDrawPlayerId = null;
 
   // Reset reverse stack on draw (drawing breaks the chain)
   room.reverseStackCount = 0;
