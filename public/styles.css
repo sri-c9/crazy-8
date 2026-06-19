@@ -858,6 +858,28 @@ input[type="text"]:focus {
   white-space: nowrap;
 }
 
+/* Player who is up immediately after the current player */
+.opponent-node.next-turn .opponent-avatar-circle {
+  border-color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.45);
+}
+
+.next-badge {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.92);
+  color: #111;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* Center Area */
 .center-area {
   flex: 1;
@@ -1018,6 +1040,17 @@ input[type="text"]:focus {
 
 .direction-indicator.counter-clockwise .direction-arrow {
   transform: rotate(-8deg) scaleX(-1);
+}
+
+/* Tilt the glyph toward the side play is currently flowing so the arc and the
+   indicator agree at a glance. Reversal is animated by the existing
+   #directionIndicator.direction-spin keyframes (styles.css:1066). */
+.direction-indicator.clockwise .direction-arrow {
+  transform: rotate(8deg);
+}
+
+.direction-indicator.counter-clockwise .direction-arrow {
+  transform: rotate(-8deg);
 }
 
 .direction-label {
