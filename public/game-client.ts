@@ -25,6 +25,8 @@ interface GameState {
   direction: number;
   pendingDraws: number;
   reverseStackCount: number;
+  revealHands?: boolean;
+  luckyDrawPlayerId?: string | null;
   players: Player[];
   winner: string | null;
 }
@@ -39,6 +41,8 @@ let pendingWildTargetPlayerId: string | null = null;
 let pendingTargetCardIndex: number | null = null;
 let pendingTargetCardEl: HTMLElement | null = null;
 let pendingTargetCardType: string | null = null;
+let pendingGodCardIndex: number | null = null;
+let pendingGodCardEl: HTMLElement | null = null;
 let currentGameState: GameState | null = null;
 let previousGameState: GameState | null = null;
 let reconnectAttempts = 0;
@@ -212,8 +216,11 @@ function renderGameState(state: GameState, playerId: string) {
   }
   wasYourTurn = isYourTurn;
 
+  // Lock the hand area after playing Lucky Hand: only the boosted draw is allowed.
+  handArea.classList.toggle("hand-locked", state.luckyDrawPlayerId === playerId);
+
   // Render opponents
-  renderOpponents(state.players, state.currentPlayerId, yourPlayerId, state.direction);
+  renderOpponents(state.players, state.currentPlayerId, yourPlayerId, state.direction, state.revealHands === true);
 
   // Render top card
   renderTopCard(state.topCard, state.lastPlayedColor);
@@ -333,7 +340,8 @@ function renderOpponents(
   players: Player[],
   currentPlayerId: string,
   yourId: string,
-  direction: number
+  direction: number,
+  revealHands: boolean = false,
 ) {
   const container = document.getElementById("opponentsList")!;
   container.innerHTML = "";
@@ -404,10 +412,21 @@ function renderOpponents(
     nameDiv.textContent = player.name;
     div.appendChild(nameDiv);
 
-    const countDiv = document.createElement("div");
-    countDiv.className = "opponent-card-count";
-    countDiv.textContent = `${player.cardCount} card${player.cardCount !== 1 ? "s" : ""}`;
-    div.appendChild(countDiv);
+    if (revealHands && player.hand && player.hand.length > 0) {
+      const revealRow = document.createElement("div");
+      revealRow.className = "opponent-revealed-hand";
+      player.hand.forEach((card) => {
+        const mini = createCardElement(card);
+        mini.classList.add("mini-card");
+        revealRow.appendChild(mini);
+      });
+      div.appendChild(revealRow);
+    } else {
+      const countDiv = document.createElement("div");
+      countDiv.className = "opponent-card-count";
+      countDiv.textContent = `${player.cardCount} card${player.cardCount !== 1 ? "s" : ""}`;
+      div.appendChild(countDiv);
+    }
 
     container.appendChild(div);
   });
@@ -850,6 +869,14 @@ function createCardElement(card: Card): HTMLElement {
       content = `<span class="card-value">⇆</span><span class="card-type">SWAP</span>`;
       cornerValue = "⇆";
       break;
+    case "luckyhand":
+      content = `<span class="card-value">🍀</span><span class="card-type">LUCKY</span>`;
+      cornerValue = "🍀";
+      break;
+    case "godmode":
+      content = `<span class="card-value">⚡</span><span class="card-type">GOD</span>`;
+      cornerValue = "⚡";
+      break;
   }
 
   // Add corner numbers
@@ -928,6 +955,14 @@ function renderTopCard(card: Card, lastColor: string | null) {
       content = `<span class="card-value">⇆</span>`;
       cornerValue = "⇆";
       break;
+    case "luckyhand":
+      content = `<span class="card-value">🍀</span>`;
+      cornerValue = "🍀";
+      break;
+    case "godmode":
+      content = `<span class="card-value">⚡</span>`;
+      cornerValue = "⚡";
+      break;
   }
 
   // Add corner numbers
@@ -944,6 +979,9 @@ function handleCardClick(index: number, card: Card, sourceEl: HTMLElement) {
   if (isPlayPending) return; // Prevent double-play while waiting for server response
   if (isReconnecting) return; // Prevent actions while reconnecting
 
+  // After Lucky Hand the only legal action is the boosted draw.
+  if (currentGameState?.luckyDrawPlayerId === yourPlayerId) return;
+
   if (card.type === "pickswap" || card.type === "wildpickswap") {
     // Choose target opponent first (then color for the wild variant)
     pendingTargetCardIndex = index;
@@ -956,6 +994,10 @@ function handleCardClick(index: number, card: Card, sourceEl: HTMLElement) {
     pendingWildCardEl = sourceEl;
     pendingWildTargetPlayerId = null;
     showColorPicker();
+  } else if (card.type === "godmode") {
+    pendingGodCardIndex = index;
+    pendingGodCardEl = sourceEl;
+    showGodPowerPicker();
   } else {
     // Play card immediately
     animateCardToDiscard(sourceEl);
@@ -964,7 +1006,7 @@ function handleCardClick(index: number, card: Card, sourceEl: HTMLElement) {
 }
 
 // Play a card
-function playCard(options: { index: number; chosenColor?: string; targetPlayerId?: string }) {
+function playCard(options: { index: number; chosenColor?: string; targetPlayerId?: string; godPower?: string }) {
   if (!ws) return;
 
   isPlayPending = true;
@@ -983,6 +1025,7 @@ function playCard(options: { index: number; chosenColor?: string; targetPlayerId
     cardIndex: options.index,
     chosenColor: options.chosenColor,
     targetPlayerId: options.targetPlayerId,
+    godPower: options.godPower,
   });
 }
 
@@ -1187,6 +1230,27 @@ function hideTargetPicker() {
   pendingTargetCardIndex = null;
   pendingTargetCardEl = null;
   pendingTargetCardType = null;
+}
+
+// Show God Mode power picker
+function showGodPowerPicker() {
+  document.getElementById("godPowerPicker")!.classList.remove("hidden");
+}
+
+// Hide God Mode power picker
+function hideGodPowerPicker() {
+  document.getElementById("godPowerPicker")!.classList.add("hidden");
+}
+
+function selectGodPower(power: string) {
+  if (pendingGodCardIndex === null) return;
+  const index = pendingGodCardIndex;
+  const el = pendingGodCardEl;
+  pendingGodCardIndex = null;
+  pendingGodCardEl = null;
+  hideGodPowerPicker();
+  if (el) animateCardToDiscard(el);
+  playCard({ index, godPower: power });
 }
 
 // Escape HTML for safe rendering of player names
