@@ -154,19 +154,6 @@ export function startGame(room: Room): void {
     room.lastPlayedColor = null;
   }
 
-  // TEMP DEBUG RIG (env-gated) — deterministic swap-card scenario for reproduction.
-  if (process.env.RIG_SWAP) {
-    const first = Array.from(room.players.values())[0];
-    first.hand = [
-      { type: "pickswap", color: "blue" } as Card,   // colored swap, blue (won't match red top)
-      { type: "wildpickswap" } as Card,              // wild targeted swap (always playable)
-      { type: "swap", color: "blue" } as Card,       // basic swap (always playable)
-      { type: "number", color: "red", value: 5 } as Card,
-    ];
-    room.discardPile = [{ type: "number", color: "red", value: 2 } as Card];
-    room.lastPlayedColor = "red";
-  }
-
   room.status = GameStatus.playing;
 }
 
