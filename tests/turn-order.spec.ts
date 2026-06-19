@@ -26,12 +26,14 @@ async function expectSeatingFromAlice(viewport: { width: number; height: number 
         .allTextContents();
       expect(names).toEqual(["Bob", "Cara"]);
 
-      // At most one current-turn marker on opponents (0 if it's Alice's turn, 1 if
-      // an opponent is current); at most one next-turn marker.
-      const currentCount = await alice.page
+      // If Alice is currently playing, her current-turn indicator is on the hand area,
+      // not on an opponent node — so we expect 0. Otherwise exactly 1 opponent is current.
+      const isAliceTurn = (await alice.page.locator(".hand-area.your-turn").count()) > 0;
+      const expectedCurrentCount = isAliceTurn ? 0 : 1;
+      const actualCurrentCount = await alice.page
         .locator("#opponentsList .opponent-node.current-turn")
         .count();
-      expect(currentCount).toBeLessThanOrEqual(1);
+      expect(actualCurrentCount).toBe(expectedCurrentCount);
       const nextCount = await alice.page
         .locator("#opponentsList .opponent-node.next-turn")
         .count();
