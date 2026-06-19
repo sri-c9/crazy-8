@@ -1366,6 +1366,19 @@ function setupEventListeners() {
     hideTargetPicker();
   });
 
+  // God Mode power picker buttons
+  document.querySelectorAll(".god-power-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const power = (btn as HTMLElement).dataset.power;
+      if (power) selectGodPower(power);
+    });
+  });
+  document.getElementById("godPowerPickerOverlay")?.addEventListener("click", () => {
+    pendingGodCardIndex = null;
+    pendingGodCardEl = null;
+    hideGodPowerPicker();
+  });
+
   // Back to lobby button
   document.getElementById("backToLobbyBtn")!.onclick = () => {
     window.location.href = "/";
