@@ -24,6 +24,10 @@ interface Room {
   pendingDraws: number;
   reverseStackCount: number;
   lastPlayedColor: string | null;
+  // Lucky Hand: set to the caster's id while their boosted draw is pending.
+  luckyDrawPlayerId: string | null;
+  // All-Seeing Eye: caster's id while the reveal is active (cleared after one lap).
+  revealHandsOwnerId: string | null;
 }
 
 const rooms = new Map<string, Room>();
@@ -86,6 +90,8 @@ function createRoom(
     pendingDraws: 0,
     reverseStackCount: 0,
     lastPlayedColor: null,
+    luckyDrawPlayerId: null,
+    revealHandsOwnerId: null,
   };
   room.players.set(hostId, hostPlayer);
   rooms.set(roomCode, room);
@@ -139,6 +145,14 @@ function leaveRoom(roomCode: string, playerId: string): void {
 
   room.players.delete(playerId);
 
+  // Clear card flags owned by the leaving player.
+  if (room.luckyDrawPlayerId === playerId) {
+    room.luckyDrawPlayerId = null;
+  }
+  if (room.revealHandsOwnerId === playerId) {
+    room.revealHandsOwnerId = null;
+  }
+
   // If room is empty, delete it
   if (room.players.size === 0) {
     rooms.delete(roomCode);
@@ -187,6 +201,14 @@ function disconnectPlayer(roomCode: string, playerId: string): void {
     }
   }
 
+  // Clear card flags owned by the disconnecting player so they don't get stuck.
+  if (room.luckyDrawPlayerId === playerId) {
+    room.luckyDrawPlayerId = null;
+  }
+  if (room.revealHandsOwnerId === playerId) {
+    room.revealHandsOwnerId = null;
+  }
+
   const player = room.players.get(playerId);
   if (player) {
     player.connected = false;
@@ -221,7 +243,10 @@ function getRoomPlayerList(roomCode: string): PlayerListItem[] {
   if (!room) return [];
 
   return Array.from(room.players.values()).map((player) => ({
-    ...player,
+    id: player.id,
+    name: player.name,
+    avatar: player.avatar,
+    connected: player.connected,
     isHost: player.id === room.hostId,
   }));
 }

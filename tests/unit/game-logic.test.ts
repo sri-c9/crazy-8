@@ -54,6 +54,8 @@ function makeRoom(
     pendingDraws: 0,
     reverseStackCount: 0,
     lastPlayedColor: null,
+    luckyDrawPlayerId: null,
+    revealHandsOwnerId: null,
     ...opts,
   };
   return room;
@@ -299,6 +301,7 @@ describe("Rule 8: infinite-deck draw", () => {
     const valid = new Set([
       "number", "wild", "plus2", "plus4", "plus20", "plus20color",
       "skip", "reverse", "swap", "pickswap", "wildpickswap", "nope", "rotate", "steal",
+      "luckyhand", "godmode",
     ]);
     for (let i = 0; i < 5000; i++) {
       const c = generateCard();
@@ -511,6 +514,7 @@ describe("Rule 13: generateCard distributions", () => {
     const valid = new Set([
       "number", "wild", "plus2", "plus4", "plus20", "plus20color",
       "skip", "reverse", "swap", "pickswap", "wildpickswap", "nope", "rotate", "steal",
+      "luckyhand", "godmode",
     ]);
     for (let i = 0; i < 5000; i++) {
       expect(valid.has(generateCard().type)).toBe(true);

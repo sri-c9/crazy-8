@@ -4,7 +4,29 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Insane Crazy 8 - Game</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Amatic+SC:wght@700&family=Comic+Neue:wght@400;700&family=Patrick+Hand&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <style>
+    .picker-overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; }
+    .picker-overlay.hidden { display: none !important; }
+    .picker-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
+    .picker-dialog { position: relative; background: #1f2430; border-radius: 16px; padding: 20px; width: min(90vw, 360px); box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+    .picker-title { color: #fff; margin: 0 0 14px; font-size: 1.1rem; text-align: center; }
+    .god-power-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; margin: 8px 0; padding: 14px 16px; border: none; border-radius: 12px; background: #2d3446; color: #fff; font-size: 1rem; font-weight: 700; cursor: pointer; text-align: left; }
+    .god-power-btn small { font-weight: 400; opacity: 0.7; font-size: 0.8rem; }
+    .god-power-btn:active { transform: scale(0.98); }
+    .hand-locked { opacity: 0.5; pointer-events: none; }
+    @keyframes luckyPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,210,80,0); } 50% { box-shadow: 0 0 18px 6px rgba(255,210,80,0.85); } }
+    .draw-pile-lucky { animation: luckyPulse 0.9s ease-in-out infinite; border-radius: 12px; }
+    .opponent-revealed-hand { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; max-width: 120px; }
+    .mini-card { transform: scale(0.42); transform-origin: center; margin: -18px -10px; }
+    @keyframes fxFlash { 0% { opacity: 0; } 20% { opacity: 0.9; } 100% { opacity: 0; } }
+    .fx-flash { position: fixed; inset: 0; z-index: 80; pointer-events: none; background: radial-gradient(circle at center, #fff 0%, #ffb347 40%, transparent 70%); animation: fxFlash 0.5s ease-out forwards; }
+    @keyframes fxEyeBlink { 0% { transform: translate(-50%,-50%) scale(0.4); opacity: 0; } 30% { transform: translate(-50%,-50%) scale(1.1); opacity: 1; } 70% { transform: translate(-50%,-50%) scale(1); opacity: 1; } 100% { transform: translate(-50%,-50%) scale(1.2); opacity: 0; } }
+    .fx-eye { position: fixed; z-index: 80; pointer-events: none; font-size: 96px; animation: fxEyeBlink 1.2s ease-in-out forwards; }
+  </style>
 </head>
 <body class="game-body">
   <!-- Top Bar -->
@@ -26,13 +48,13 @@
     </div>
 
     <!-- Disconnected Player Alert -->
-    <div id="disconnectedAlert" class="pending-alert hidden" style="background: rgba(150,150,150,0.15); border-color: rgba(150,150,150,0.4);">
+    <div id="disconnectedAlert" class="pending-alert hidden" style="border-color: var(--ink-mid);">
       📶 Waiting for <span id="disconnectedName">player</span> to reconnect...
     </div>
 
     <div class="piles-container">
       <!-- Draw Pile -->
-      <div class="pile draw-pile">
+      <div class="pile draw-pile" id="drawPile">
         <div class="draw-pile-stack">
           <div class="card-back stack-card"></div>
           <div class="card-back stack-card"></div>
@@ -51,7 +73,10 @@
 
     <!-- Direction Indicator -->
     <div class="direction-indicator clockwise" id="directionIndicator">
-      <span class="direction-arrow" id="directionArrow"></span>
+      <svg class="direction-arrow" id="directionArrow" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M16 4a12 12 0 1 1-9 4"/>
+        <polyline points="7,8 7,16 15,16"/>
+      </svg>
     </div>
   </div>
 
@@ -109,6 +134,17 @@
       <h2>🎉 Game Over!</h2>
       <p class="winner-text"><span class="crown-icon">👑</span> <span id="winnerName"></span></p>
       <button id="backToLobbyBtn" class="btn btn-primary">Back to Lobby</button>
+    </div>
+  </div>
+
+  <!-- God Mode Power Picker Modal -->
+  <div id="godPowerPicker" class="picker-overlay hidden">
+    <div id="godPowerPickerOverlay" class="picker-backdrop"></div>
+    <div class="picker-dialog">
+      <h3 class="picker-title">⚡ Choose your God Mode power</h3>
+      <button class="god-power-btn" data-power="allSeeingEye">👁 All-Seeing Eye<small>Reveal every hand for one round</small></button>
+      <button class="god-power-btn" data-power="bigBang">💥 Big Bang<small>Shuffle &amp; re-deal all hands</small></button>
+      <button class="god-power-btn" data-power="reincarnation">♻️ Reincarnation<small>Everyone reborn with 7 fresh cards</small></button>
     </div>
   </div>
 

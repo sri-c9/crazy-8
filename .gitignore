@@ -34,6 +34,9 @@ public/admin-client.js
 # Development worktrees
 .worktrees/
 
+# Brainstorm visual-companion mockups
+.superpowers/
+
 # Test artifacts (Playwright)
 test-results/
 playwright-report/
