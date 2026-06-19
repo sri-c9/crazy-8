@@ -1,5 +1,5 @@
 // Game client - handles WebSocket connection, rendering, and user interactions
-import { haptic } from "ios-haptics";
+import { haptic } from "./haptics";
 import { seatOpponents } from "./turn-order";
 
 interface Card {

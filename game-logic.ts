@@ -154,6 +154,18 @@ export function startGame(room: Room): void {
     room.lastPlayedColor = null;
   }
 
+  // TEMP DEBUG RIG (env-gated) — deterministic God Mode / Lucky Hand scenario.
+  if (process.env.RIG_GODMODE) {
+    const first = Array.from(room.players.values())[0];
+    first.hand = [
+      { type: "godmode", color: "red" } as Card,
+      { type: "luckyhand", color: "red" } as Card,
+      { type: "number", color: "red", value: 5 } as Card,
+    ];
+    room.discardPile = [{ type: "number", color: "red", value: 2 } as Card];
+    room.lastPlayedColor = "red";
+  }
+
   room.status = GameStatus.playing;
 }
 
