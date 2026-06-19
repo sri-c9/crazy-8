@@ -34,6 +34,7 @@ interface IncomingMessage {
   cardIndex?: number;
   chosenColor?: CardColor;
   targetPlayerId?: string;
+  godPower?: "allSeeingEye" | "bigBang" | "reincarnation";
 }
 
 // Validation helpers
@@ -584,6 +585,7 @@ const broadcastGameState = (roomCode: string, winner?: string | null) => {
 
   const currentPlayerId = getCurrentPlayer(room);
   const topCard = getTopCard(room);
+  const revealHands = room.revealHandsOwnerId !== null;
 
   // Send personalized state to each player
   for (const [playerId, player] of room.players) {
@@ -596,13 +598,16 @@ const broadcastGameState = (roomCode: string, winner?: string | null) => {
         direction: room.direction,
         pendingDraws: room.pendingDraws,
         reverseStackCount: room.reverseStackCount,
+        revealHands,
+        luckyDrawPlayerId: room.luckyDrawPlayerId,
         players: Array.from(room.players.values()).map((p) => ({
           id: p.id,
           name: p.name,
           avatar: p.avatar,
           connected: p.connected,
           cardCount: p.hand.length,
-          hand: p.id === playerId ? p.hand : undefined, // Only send own hand
+          // Send a player's own hand always; send everyone's hands while revealed.
+          hand: p.id === playerId || revealHands ? p.hand : undefined,
         })),
         winner: winner || null,
       },
@@ -754,7 +759,15 @@ const handlePlayCard = (
       skippedPlayerIds = [playerArray[skippedIndex1], playerArray[skippedIndex2]];
     }
 
-    playCard(room, playerId, cardIndex, msg.chosenColor, msg.targetPlayerId);
+    if (card.type === "godmode") {
+      const validPowers = ["allSeeingEye", "bigBang", "reincarnation"];
+      if (!msg.godPower || !validPowers.includes(msg.godPower)) {
+        ws.send(JSON.stringify({ type: "error", message: "Must choose a God Mode power" }));
+        return;
+      }
+    }
+
+    playCard(room, playerId, cardIndex, msg.chosenColor, msg.targetPlayerId, msg.godPower);
 
     // Send skip effect notifications
     if (skippedPlayerIds.length > 0) {
@@ -788,6 +801,20 @@ const handlePlayCard = (
         roomCode,
         JSON.stringify({ type: "cardEffect", effect: "rotate" }),
       );
+    }
+
+    // Lucky Hand: tell the caster their next draw is boosted (drives the pile glow).
+    if (card.type === "luckyhand") {
+      const playerWs = playerConnections.get(playerId);
+      if (playerWs) {
+        playerWs.send(JSON.stringify({ type: "cardEffect", effect: "luckyHand" }));
+      }
+      server.publish(roomCode, JSON.stringify({ type: "cardEffect", effect: "luckyHandPlayed" }));
+    }
+
+    // God Mode: broadcast the chosen power so everyone plays the matching animation.
+    if (card.type === "godmode" && msg.godPower) {
+      server.publish(roomCode, JSON.stringify({ type: "cardEffect", effect: msg.godPower }));
     }
 
     // Send swap effect notifications
