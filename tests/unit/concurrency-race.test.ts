@@ -34,6 +34,8 @@ function makeRoom(hands: Card[][]): Room {
     pendingDraws: 0,
     reverseStackCount: 0,
     lastPlayedColor: "red",
+    luckyDrawPlayerId: null,
+    revealHandsOwnerId: null,
   } as Room;
 }
 
