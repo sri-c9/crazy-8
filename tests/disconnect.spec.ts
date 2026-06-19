@@ -52,12 +52,13 @@ test.describe('Disconnect Handling', () => {
       await currentPlayer.page.close();
 
       // Wait for the turn to advance to one of the remaining players.
-      // The server immediately advances on disconnect and broadcasts state.
-      // Use waitForFunction to poll until one of the remaining players sees your-turn.
+      // The server auto-skips a disconnected current player after the turn-skip
+      // grace period (short in tests; see playwright.config webServer command),
+      // since they never reconnect here. Poll until a remaining player sees your-turn.
       let turnAdvanced = false;
       for (const rp of remainingPlayers) {
         try {
-          await rp.page.waitForSelector('.hand-area.your-turn', { timeout: 5000 });
+          await rp.page.waitForSelector('.hand-area.your-turn', { timeout: 10000 });
           turnAdvanced = true;
           break;
         } catch {
@@ -72,6 +73,74 @@ test.describe('Disconnect Handling', () => {
 
     } finally {
       // Clean up remaining contexts
+      await context1.close().catch(() => {});
+      await context2.close().catch(() => {});
+      await context3.close().catch(() => {});
+    }
+  });
+
+  test('current player keeps their turn when they reconnect quickly (no turn-steal on lobby→game navigation)', async ({ browser }) => {
+    const context1 = await browser.newContext();
+    const context2 = await browser.newContext();
+    const context3 = await browser.newContext();
+
+    try {
+      // Set up 3-player game
+      const host = await createRoom(context1, 'Host', '😎');
+      const player2 = await joinRoom(context2, host.roomCode, 'Player 2', '🔥');
+      const player3 = await joinRoom(context3, host.roomCode, 'Player 3', '👻');
+
+      await startGame(host.page);
+      await player2.page.waitForURL(/\/game\.html/);
+      await player3.page.waitForURL(/\/game\.html/);
+
+      await waitForGameReady(host.page);
+      await waitForGameReady(player2.page);
+      await waitForGameReady(player3.page);
+
+      const players = [host, player2, player3];
+
+      // Find whose turn it is
+      const currentPlayer = await findCurrentPlayer(players);
+      expect(currentPlayer).not.toBeNull();
+      if (!currentPlayer) return;
+
+      const playerId = currentPlayer.playerId;
+      const roomCode = await getRoomCode(currentPlayer.page);
+      const sessionToken = await currentPlayer.page.evaluate(() =>
+        sessionStorage.getItem('crazy8_sessionToken') || ''
+      );
+
+      // Map players back to their browser context so we can reopen in the same one.
+      const contextByPlayer = new Map<string, typeof context1>([
+        [host.playerId, context1],
+        [player2.playerId, context2],
+        [player3.playerId, context3],
+      ]);
+      const currentContext = contextByPlayer.get(playerId)!;
+
+      // Simulate a transient disconnect followed by a quick reconnect — exactly
+      // what happens to the host when navigating lobby -> game.html at game start.
+      await currentPlayer.page.close();
+
+      const newPage = await currentContext.newPage();
+      await newPage.goto('/');
+      await newPage.evaluate((token) => {
+        sessionStorage.setItem('crazy8_sessionToken', token);
+      }, sessionToken);
+      await newPage.goto(`/game.html?room=${roomCode}&player=${playerId}`);
+
+      await waitForGameReady(newPage);
+
+      // The turn must NOT have been stolen — it is still this player's turn,
+      // so their cards (including swap cards) are playable.
+      const stillMyTurn = await newPage.$('.hand-area.your-turn');
+      expect(stillMyTurn).not.toBeNull();
+
+      const playableCards = await newPage.$$('#handCards .card.playable');
+      expect(playableCards.length).toBeGreaterThan(0);
+
+    } finally {
       await context1.close().catch(() => {});
       await context2.close().catch(() => {});
       await context3.close().catch(() => {});

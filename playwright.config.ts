@@ -25,9 +25,11 @@ export default defineConfig({
     },
   ],
 
-  // Auto-start server before running tests
+  // Auto-start server before running tests.
+  // Use a short turn-skip grace period so disconnect tests don't wait the full
+  // production window (30s) for a turn to auto-advance.
   webServer: {
-    command: 'bun run build && bun start',
+    command: 'bun run build && TURN_SKIP_GRACE_MS=3000 bun start',
     port: 3000,
     reuseExistingServer: !process.env.CI,
     timeout: 30000,

@@ -70,6 +70,18 @@ export interface StealCard {
   color: CardColor;
 }
 
+export interface LuckyHandCard {
+  type: "luckyhand";
+  color: CardColor;
+}
+
+export interface GodModeCard {
+  type: "godmode";
+  color: CardColor;
+}
+
+export type GodPower = "allSeeingEye" | "bigBang" | "reincarnation";
+
 export type Card =
   | NumberCard
   | WildCard
@@ -84,7 +96,9 @@ export type Card =
   | WildPickSwapCard
   | NopeCard
   | RotateCard
-  | StealCard;
+  | StealCard
+  | LuckyHandCard
+  | GodModeCard;
 
 const COLORS: CardColor[] = ["red", "blue", "green", "yellow"];
 const NUMBER_VALUES: number[] = [0, 1, 2, 3, 4, 5, 6, 7, 9];
@@ -108,7 +122,7 @@ export interface CardTypeConfig {
 // Weighted distribution for random card generation.
 // Tweak weights here to change how often each card type appears.
 export const CARD_DISTRIBUTION: CardTypeConfig[] = [
-  { type: "number", weight: 0.49, generate: () => ({ type: "number", color: randomColor(), value: randomNumberValue() }) },
+  { type: "number", weight: 0.44, generate: () => ({ type: "number", color: randomColor(), value: randomNumberValue() }) },
   { type: "wild", weight: 0.05, generate: () => ({ type: "wild", chosenColor: null }) },
   { type: "plus2", weight: 0.09, generate: () => ({ type: "plus2", color: randomColor() }) },
   { type: "plus4", weight: 0.05, generate: () => ({ type: "plus4" }) },
@@ -122,6 +136,8 @@ export const CARD_DISTRIBUTION: CardTypeConfig[] = [
   { type: "nope", weight: 0.05, generate: () => ({ type: "nope", color: randomColor() }) },
   { type: "rotate", weight: 0.04, generate: () => ({ type: "rotate", color: randomColor() }) },
   { type: "steal", weight: 0.02, generate: () => ({ type: "steal", color: randomColor() }) },
+  { type: "luckyhand", weight: 0.03, generate: () => ({ type: "luckyhand", color: randomColor() }) },
+  { type: "godmode", weight: 0.02, generate: () => ({ type: "godmode", color: randomColor() }) },
 ];
 
 // Verify weights sum to 1.0 (catches typos when adjusting frequencies).
@@ -130,6 +146,28 @@ if (Math.abs(totalWeight - 1.0) > 0.0001) {
   throw new Error(
     `CARD_DISTRIBUTION weights must sum to 1.0, got ${totalWeight.toFixed(4)}`
   );
+}
+
+// Lucky Hand boosted draw: ~10% plain number, ~90% special (full pool, including
+// luckyhand and godmode). Derived from CARD_DISTRIBUTION so weights stay DRY.
+const numberEntry = CARD_DISTRIBUTION.find((e) => e.type === "number")!;
+const specialEntries = CARD_DISTRIBUTION.filter((e) => e.type !== "number");
+const specialWeightSum = specialEntries.reduce((s, e) => s + e.weight, 0);
+export const BOOSTED_NUMBER_CHANCE = 0.1;
+
+export function generateBoostedCard(): Card {
+  if (Math.random() < BOOSTED_NUMBER_CHANCE) {
+    return numberEntry.generate();
+  }
+  const rand = Math.random() * specialWeightSum;
+  let cumulative = 0;
+  for (const entry of specialEntries) {
+    cumulative += entry.weight;
+    if (rand < cumulative) {
+      return entry.generate();
+    }
+  }
+  return specialEntries[specialEntries.length - 1].generate();
 }
 
 // Generate a random card using the configured weighted distribution.

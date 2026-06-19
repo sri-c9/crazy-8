@@ -34,6 +34,7 @@ interface IncomingMessage {
   cardIndex?: number;
   chosenColor?: CardColor;
   targetPlayerId?: string;
+  godPower?: "allSeeingEye" | "bigBang" | "reincarnation";
 }
 
 // Validation helpers
@@ -112,6 +113,13 @@ const leaveTimers = new Map<string, Timer>(); // 2min: formally remove player fr
 
 // Track disconnect metadata for timers (roomCode needed when timer fires)
 const disconnectInfo = new Map<string, { roomCode: string }>();
+
+// Grace period before a disconnected current player's turn is auto-skipped.
+// A normal lobby -> game navigation closes the socket briefly and reconnects via
+// `rejoin` within ~1s (which cancels turnSkipTimers), so advancing the turn
+// immediately would steal the player's (typically the host's) first turn.
+// Overridable so tests can use a short window; defaults to 30s in production.
+const TURN_SKIP_GRACE_MS = parseInt(Bun.env.TURN_SKIP_GRACE_MS ?? "30000", 10);
 
 // Rate limiting: sliding window tracking per connection
 const MSG_RATE_LIMIT = 20; // max messages per second
@@ -308,20 +316,32 @@ const server = Bun.serve<WebSocketData>({
           }),
         );
 
-        // Immediately advance turn if it's this player's turn
+        // If the current player disconnects, don't steal their turn immediately.
+        // A normal lobby -> game navigation closes the socket and reconnects within
+        // ~1s (rejoin cancels turnSkipTimers below). Only auto-skip their turn if
+        // they stay disconnected past the grace period.
         {
           const room = getRoom(roomCode);
-          console.log(`[DISCONNECT] player=${playerId} room=${roomCode} roomExists=${!!room} status=${room?.status}`);
-          if (room && room.status === GameStatus.playing) {
-            const currentPlayerId = getCurrentPlayer(room);
-            console.log(`[DISCONNECT] currentPlayer=${currentPlayerId} disconnected=${playerId} match=${currentPlayerId === playerId}`);
-            if (currentPlayerId === playerId) {
-              room.pendingDraws = 0;
-              advanceTurn(room);
-              const newCurrent = getCurrentPlayer(room);
-              console.log(`[DISCONNECT] Turn advanced to ${newCurrent}`);
-              broadcastGameState(roomCode);
-            }
+          if (room && room.status === GameStatus.playing && getCurrentPlayer(room) === playerId) {
+            // Let opponents see the disconnect right away, but keep the turn put.
+            broadcastGameState(roomCode);
+
+            const skipTimer = setTimeout(() => {
+              try {
+                turnSkipTimers.delete(playerId);
+                const r = getRoom(roomCode);
+                if (!r || r.status !== GameStatus.playing) return;
+                const p = r.players.get(playerId);
+                if (!p || p.connected) return;                // reconnected — keep their turn
+                if (getCurrentPlayer(r) !== playerId) return; // turn already moved on
+                r.pendingDraws = 0;
+                advanceTurn(r);
+                broadcastGameState(roomCode);
+              } catch (error) {
+                console.error("turnSkipTimer callback error:", error);
+              }
+            }, TURN_SKIP_GRACE_MS);
+            turnSkipTimers.set(playerId, skipTimer);
           }
         }
 
@@ -584,6 +604,7 @@ const broadcastGameState = (roomCode: string, winner?: string | null) => {
 
   const currentPlayerId = getCurrentPlayer(room);
   const topCard = getTopCard(room);
+  const revealHands = room.revealHandsOwnerId !== null;
 
   // Send personalized state to each player
   for (const [playerId, player] of room.players) {
@@ -596,13 +617,16 @@ const broadcastGameState = (roomCode: string, winner?: string | null) => {
         direction: room.direction,
         pendingDraws: room.pendingDraws,
         reverseStackCount: room.reverseStackCount,
+        revealHands,
+        luckyDrawPlayerId: room.luckyDrawPlayerId,
         players: Array.from(room.players.values()).map((p) => ({
           id: p.id,
           name: p.name,
           avatar: p.avatar,
           connected: p.connected,
           cardCount: p.hand.length,
-          hand: p.id === playerId ? p.hand : undefined, // Only send own hand
+          // Send a player's own hand always; send everyone's hands while revealed.
+          hand: p.id === playerId || revealHands ? p.hand : undefined,
         })),
         winner: winner || null,
       },
@@ -754,7 +778,15 @@ const handlePlayCard = (
       skippedPlayerIds = [playerArray[skippedIndex1], playerArray[skippedIndex2]];
     }
 
-    playCard(room, playerId, cardIndex, msg.chosenColor, msg.targetPlayerId);
+    if (card.type === "godmode") {
+      const validPowers = ["allSeeingEye", "bigBang", "reincarnation"];
+      if (!msg.godPower || !validPowers.includes(msg.godPower)) {
+        ws.send(JSON.stringify({ type: "error", message: "Must choose a God Mode power" }));
+        return;
+      }
+    }
+
+    playCard(room, playerId, cardIndex, msg.chosenColor, msg.targetPlayerId, msg.godPower);
 
     // Send skip effect notifications
     if (skippedPlayerIds.length > 0) {
@@ -788,6 +820,20 @@ const handlePlayCard = (
         roomCode,
         JSON.stringify({ type: "cardEffect", effect: "rotate" }),
       );
+    }
+
+    // Lucky Hand: tell the caster their next draw is boosted (drives the pile glow).
+    if (card.type === "luckyhand") {
+      const playerWs = playerConnections.get(playerId);
+      if (playerWs) {
+        playerWs.send(JSON.stringify({ type: "cardEffect", effect: "luckyHand" }));
+      }
+      server.publish(roomCode, JSON.stringify({ type: "cardEffect", effect: "luckyHandPlayed" }));
+    }
+
+    // God Mode: broadcast the chosen power so everyone plays the matching animation.
+    if (card.type === "godmode" && msg.godPower) {
+      server.publish(roomCode, JSON.stringify({ type: "cardEffect", effect: msg.godPower }));
     }
 
     // Send swap effect notifications

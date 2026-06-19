@@ -1,6 +1,7 @@
 // Game client - handles WebSocket connection, rendering, and user interactions
-import { haptic } from "ios-haptics";
+import { haptic } from "./haptics";
 import { seatOpponents } from "./turn-order";
+import { icons, elementByColor, colorLabel } from "./card-icons";
 
 interface Card {
   type: string;
@@ -25,6 +26,8 @@ interface GameState {
   direction: number;
   pendingDraws: number;
   reverseStackCount: number;
+  revealHands?: boolean;
+  luckyDrawPlayerId?: string | null;
   players: Player[];
   winner: string | null;
 }
@@ -39,6 +42,8 @@ let pendingWildTargetPlayerId: string | null = null;
 let pendingTargetCardIndex: number | null = null;
 let pendingTargetCardEl: HTMLElement | null = null;
 let pendingTargetCardType: string | null = null;
+let pendingGodCardIndex: number | null = null;
+let pendingGodCardEl: HTMLElement | null = null;
 let currentGameState: GameState | null = null;
 let previousGameState: GameState | null = null;
 let reconnectAttempts = 0;
@@ -212,8 +217,11 @@ function renderGameState(state: GameState, playerId: string) {
   }
   wasYourTurn = isYourTurn;
 
+  // Lock the hand area after playing Lucky Hand: only the boosted draw is allowed.
+  handArea.classList.toggle("hand-locked", state.luckyDrawPlayerId === playerId);
+
   // Render opponents
-  renderOpponents(state.players, state.currentPlayerId, yourPlayerId, state.direction);
+  renderOpponents(state.players, state.currentPlayerId, yourPlayerId, state.direction, state.revealHands === true);
 
   // Render top card
   renderTopCard(state.topCard, state.lastPlayedColor);
@@ -333,7 +341,8 @@ function renderOpponents(
   players: Player[],
   currentPlayerId: string,
   yourId: string,
-  direction: number
+  direction: number,
+  revealHands: boolean = false,
 ) {
   const container = document.getElementById("opponentsList")!;
   container.innerHTML = "";
@@ -404,10 +413,21 @@ function renderOpponents(
     nameDiv.textContent = player.name;
     div.appendChild(nameDiv);
 
-    const countDiv = document.createElement("div");
-    countDiv.className = "opponent-card-count";
-    countDiv.textContent = `${player.cardCount} card${player.cardCount !== 1 ? "s" : ""}`;
-    div.appendChild(countDiv);
+    if (revealHands && player.hand && player.hand.length > 0) {
+      const revealRow = document.createElement("div");
+      revealRow.className = "opponent-revealed-hand";
+      player.hand.forEach((card) => {
+        const mini = createCardElement(card);
+        mini.classList.add("mini-card");
+        revealRow.appendChild(mini);
+      });
+      div.appendChild(revealRow);
+    } else {
+      const countDiv = document.createElement("div");
+      countDiv.className = "opponent-card-count";
+      countDiv.textContent = `${player.cardCount} card${player.cardCount !== 1 ? "s" : ""}`;
+      div.appendChild(countDiv);
+    }
 
     container.appendChild(div);
   });
@@ -784,81 +804,208 @@ function playReverseAnimation(): void {
   }
 }
 
+// 🍀 Lucky Hand: gold ring + sparkle over the draw pile; pile glows until you draw.
+function playLuckyHandAnimation(): void {
+  const drawPile = document.getElementById("drawPile") || document.querySelector(".piles-container");
+  if (drawPile) {
+    (drawPile as HTMLElement).classList.add("draw-pile-lucky");
+  }
+  if (!motionEnabled()) return;
+  const center = getBoardCenter();
+  emitRingPulse(center, "rgba(255,210,80,0.9)");
+  emitRingPulse(center, "rgba(255,235,160,0.7)", 120);
+}
+
+// Remove the lucky glow once the draw resolves (called from handleCardDrawn).
+function clearLuckyGlow(): void {
+  document.querySelectorAll(".draw-pile-lucky").forEach((el) => el.classList.remove("draw-pile-lucky"));
+}
+
+// 👁 All-Seeing Eye: violet iris ring + blinking eye; pulse every player.
+function playAllSeeingEyeAnimation(): void {
+  if (!motionEnabled()) return;
+  const center = getBoardCenter();
+  emitRingPulse(center, "rgba(168,85,247,0.9)");
+  const eye = document.createElement("div");
+  eye.className = "fx-eye";
+  eye.textContent = "👁";
+  eye.style.left = `${center.x}px`;
+  eye.style.top = `${center.y}px`;
+  document.body.appendChild(eye);
+  eye.addEventListener("animationend", () => eye.remove(), { once: true });
+  (currentGameState?.players ?? []).forEach((p, i) => pulseEndpoint(p.id, "rgba(168,85,247,0.9)", i * 60));
+}
+
+// 💥 Big Bang: flash + shockwave, hands implode to center then scatter back out.
+function playBigBangAnimation(): void {
+  if (!motionEnabled()) return;
+  const center = getBoardCenter();
+  const flash = document.createElement("div");
+  flash.className = "fx-flash";
+  document.body.appendChild(flash);
+  flash.addEventListener("animationend", () => flash.remove(), { once: true });
+  emitRingPulse(center, "rgba(255,179,71,0.95)");
+  const players = currentGameState?.players ?? [];
+  players.forEach((p, i) => {
+    const pt = getPlayerScreenPoint(p.id);
+    if (!pt) return;
+    flyHandStack(pt, center, { arc: 30, delay: i * 40, duration: 420, tint: "#ffb347" });        // implode
+    flyHandStack(center, pt, { arc: -30, delay: 460 + i * 40, duration: 520, tint: "#ffd27a" });  // scatter
+  });
+}
+
+// ♻️ Reincarnation: hands burn away upward, then fresh stacks deal out to everyone.
+function playReincarnationAnimation(): void {
+  if (!motionEnabled()) return;
+  const center = getBoardCenter();
+  const players = currentGameState?.players ?? [];
+  players.forEach((p, i) => {
+    const pt = getPlayerScreenPoint(p.id);
+    if (!pt) return;
+    // Incinerate: rise and dissolve.
+    flyHandStack(pt, { x: pt.x, y: pt.y - 120 }, { arc: 0, delay: i * 40, duration: 460, tint: "#ff5a36", spin: 40 });
+    // Rebirth: deal fresh cards from center.
+    flyHandStack(center, pt, { arc: 20, delay: 520 + i * 50, duration: 560, tint: "#34d399" });
+    pulseEndpoint(p.id, "rgba(52,211,153,0.9)", 520 + i * 50);
+  });
+}
+
+// Small badge values shown in the bottom-center of special cards.
+const SPECIAL_BADGES: Record<string, string> = {
+  skip: "SKIP",
+  reverse: "REV",
+  swap: "SWAP",
+  nope: "NOPE",
+  rotate: "ROT",
+  steal: "STEAL",
+  pickswap: "SWAP",
+  wildpickswap: "SWAP",
+  luckyhand: "LUCKY",
+  godmode: "GOD",
+};
+
+// Icon/arrangement configuration per card type.
+interface CardTypeConfig {
+  cornerValue: string;
+  faceIcon?: string; // key into icons map; if omitted, no centered icon
+  faceValue?: string; // large centered value
+  typeBadge?: string; // bottom-center badge text for special cards
+  extraFaceIcon?: string; // smaller secondary icon rendered alongside value
+}
+
+function configForCard(card: Card): CardTypeConfig {
+  switch (card.type) {
+    case "number":
+      return { cornerValue: card.value!.toString() };
+    case "wild":
+      return { cornerValue: "8", faceIcon: "spark", faceValue: "8" };
+    case "plus2":
+      return { cornerValue: "+2", faceValue: "+2", extraFaceIcon: "flashSmall" };
+    case "plus4":
+      return { cornerValue: "+4", faceValue: "+4", extraFaceIcon: "flashBig" };
+    case "plus20":
+    case "plus20color":
+      return { cornerValue: "+20", faceValue: "+20", extraFaceIcon: "cataclysm" };
+    case "skip":
+      return { cornerValue: "S", faceIcon: "skipArrow", typeBadge: SPECIAL_BADGES.skip };
+    case "reverse":
+      return { cornerValue: "R", faceIcon: "reverseArrow", typeBadge: SPECIAL_BADGES.reverse };
+    case "swap":
+      return { cornerValue: "X", faceIcon: "swapArrows", typeBadge: SPECIAL_BADGES.swap };
+    case "nope":
+      return { cornerValue: "N", faceIcon: "shield", typeBadge: SPECIAL_BADGES.nope };
+    case "rotate":
+      return { cornerValue: "R", faceIcon: "rotateArrow", typeBadge: SPECIAL_BADGES.rotate };
+    case "steal":
+      return { cornerValue: "S", faceIcon: "stealMask", typeBadge: SPECIAL_BADGES.steal };
+    case "pickswap":
+      return { cornerValue: "X", faceIcon: "swapArrows", typeBadge: SPECIAL_BADGES.pickswap };
+    case "wildpickswap":
+      return { cornerValue: "X", faceIcon: "swapArrows", typeBadge: SPECIAL_BADGES.wildpickswap };
+    case "luckyhand":
+      return { cornerValue: "L", faceIcon: "clover", typeBadge: SPECIAL_BADGES.luckyhand };
+    case "godmode":
+      return { cornerValue: "G", faceIcon: "bolt", typeBadge: SPECIAL_BADGES.godmode };
+  }
+}
+
+function cardColorClass(card: Card): string {
+  return card.color || card.chosenColor || "wild";
+}
+
+function cardTypeModifier(card: Card): string {
+  // Normalize plus20color to plus20 for CSS; wildpickswap keeps its own modifier.
+  if (card.type === "plus20color") return "plus20color";
+  if (card.type === "wildpickswap") return "wildpickswap";
+  return card.type;
+}
+
+function cornerHtml(value: string, iconName: string | undefined): string {
+  const iconHtml = iconName ? icons[iconName].corner : "";
+  return `<span class="card-corner">${value}${iconHtml}</span>`;
+}
+
+function cardFaceHtml(
+  config: CardTypeConfig,
+  color: string,
+  showLabels: boolean
+): string {
+  const element = elementByColor[color] ?? "spark";
+  let inner = "";
+
+  if (config.faceIcon) {
+    inner += icons[config.faceIcon].face;
+  } else if (config.faceValue) {
+    // Number / plus cards use the element icon as the centered motif.
+    inner += icons[element].face;
+  }
+
+  if (config.faceValue) {
+    inner += `<span class="card-value">${config.faceValue}</span>`;
+  }
+
+  if (config.extraFaceIcon && config.faceValue) {
+    // Extra icon is rendered as an overlay motif by CSS in Phase D.
+    inner += `<span class="card-extra-icon" aria-hidden="true">${icons[config.extraFaceIcon].face}</span>`;
+  }
+
+  if (showLabels) {
+    if (config.typeBadge) {
+      inner += `<span class="card-type">${config.typeBadge}</span>`;
+    }
+
+    if (showLabels && colorLabel[color]) {
+      inner += `<span class="card-label">${colorLabel[color]}</span>`;
+    }
+  }
+
+  return inner;
+}
+
+function buildCardHtml(card: Card, showLabels: boolean): { className: string; html: string } {
+  const color = cardColorClass(card);
+  const modifier = cardTypeModifier(card);
+  const config = configForCard(card);
+  const element = elementByColor[color] ?? "spark";
+
+  // For non-number special cards, the corner repeats the face icon.
+  const cornerIcon = config.faceIcon || element;
+
+  const className = `card ${color} ${modifier}`;
+  const html = `
+    <span class="card-corner card-corner-tl">${config.cornerValue}${icons[cornerIcon].corner}</span>
+    <div class="card-face">${cardFaceHtml(config, color, showLabels)}</div>
+    <span class="card-corner card-corner-br">${config.cornerValue}${icons[cornerIcon].corner}</span>
+  `;
+  return { className, html };
+}
+
 // Create card element
 function createCardElement(card: Card): HTMLElement {
   const div = document.createElement("div");
-  const color = card.color || card.chosenColor || "wild";
-  div.className = `card ${color}`;
-
-  let content = "";
-  let cornerValue = "";
-
-  switch (card.type) {
-    case "number":
-      content = `<span class="card-value">${card.value}</span>`;
-      cornerValue = card.value!.toString();
-      break;
-    case "wild":
-      content = `<span class="card-value">8</span><span class="card-type">WILD</span>`;
-      cornerValue = "8";
-      break;
-    case "plus2":
-      content = `<span class="card-value">+2</span>`;
-      cornerValue = "+2";
-      break;
-    case "plus4":
-      content = `<span class="card-value">+4</span>`;
-      cornerValue = "+4";
-      break;
-    case "plus20":
-      content = `<span class="card-value">+20</span>`;
-      cornerValue = "+20";
-      break;
-    case "plus20color":
-      content = `<span class="card-value">+20</span>`;
-      cornerValue = "+20";
-      break;
-    case "skip":
-      content = `<span class="card-value">⊘</span><span class="card-type">SKIP</span>`;
-      cornerValue = "⊘";
-      break;
-    case "reverse":
-      content = `<span class="card-value">⇄</span><span class="card-type">REV</span>`;
-      cornerValue = "⇄";
-      break;
-    case "swap":
-      content = `<span class="card-value">⇅</span><span class="card-type">SWAP</span>`;
-      cornerValue = "⇅";
-      break;
-    case "nope":
-      content = `<span class="card-value">🛡</span><span class="card-type">NOPE</span>`;
-      cornerValue = "N";
-      break;
-    case "rotate":
-      content = `<span class="card-value">🔄</span><span class="card-type">ROT</span>`;
-      cornerValue = "R";
-      break;
-    case "steal":
-      content = `<span class="card-value">🦹</span><span class="card-type">STEAL</span>`;
-      cornerValue = "S";
-      break;
-    case "pickswap":
-      content = `<span class="card-value">⇆</span><span class="card-type">SWAP</span>`;
-      cornerValue = "⇆";
-      break;
-    case "wildpickswap":
-      content = `<span class="card-value">⇆</span><span class="card-type">SWAP</span>`;
-      cornerValue = "⇆";
-      break;
-  }
-
-  // Add corner numbers
-  div.innerHTML = `
-    <span class="card-corner card-corner-tl">${cornerValue}</span>
-    ${content}
-    <span class="card-corner card-corner-br">${cornerValue}</span>
-  `;
-
+  const { className, html } = buildCardHtml(card, true);
+  div.className = className;
+  div.innerHTML = html;
   return div;
 }
 
@@ -866,76 +1013,10 @@ function createCardElement(card: Card): HTMLElement {
 function renderTopCard(card: Card, lastColor: string | null) {
   const topCard = document.getElementById("topCard")!;
   const displayColor = card.color || lastColor || "wild";
-  topCard.className = `card ${displayColor}`;
-
-  let content = "";
-  let cornerValue = "";
-
-  switch (card.type) {
-    case "number":
-      content = `<span class="card-value">${card.value}</span>`;
-      cornerValue = card.value!.toString();
-      break;
-    case "wild":
-      content = `<span class="card-value">8</span>`;
-      cornerValue = "8";
-      break;
-    case "plus2":
-      content = `<span class="card-value">+2</span>`;
-      cornerValue = "+2";
-      break;
-    case "plus4":
-      content = `<span class="card-value">+4</span>`;
-      cornerValue = "+4";
-      break;
-    case "plus20":
-      content = `<span class="card-value">+20</span>`;
-      cornerValue = "+20";
-      break;
-    case "plus20color":
-      content = `<span class="card-value">+20</span>`;
-      cornerValue = "+20";
-      break;
-    case "skip":
-      content = `<span class="card-value">⊘</span>`;
-      cornerValue = "⊘";
-      break;
-    case "reverse":
-      content = `<span class="card-value">⇄</span>`;
-      cornerValue = "⇄";
-      break;
-    case "swap":
-      content = `<span class="card-value">⇅</span>`;
-      cornerValue = "⇅";
-      break;
-    case "nope":
-      content = `<span class="card-value">🛡</span>`;
-      cornerValue = "N";
-      break;
-    case "rotate":
-      content = `<span class="card-value">🔄</span>`;
-      cornerValue = "R";
-      break;
-    case "steal":
-      content = `<span class="card-value">🦹</span>`;
-      cornerValue = "S";
-      break;
-    case "pickswap":
-      content = `<span class="card-value">⇆</span>`;
-      cornerValue = "⇆";
-      break;
-    case "wildpickswap":
-      content = `<span class="card-value">⇆</span>`;
-      cornerValue = "⇆";
-      break;
-  }
-
-  // Add corner numbers
-  topCard.innerHTML = `
-    <span class="card-corner card-corner-tl">${cornerValue}</span>
-    ${content}
-    <span class="card-corner card-corner-br">${cornerValue}</span>
-  `;
+  const displayCard = { ...card, color: displayColor };
+  const { className, html } = buildCardHtml(displayCard, false);
+  topCard.className = className;
+  topCard.innerHTML = html;
 }
 
 // Handle card click
@@ -943,6 +1024,9 @@ function handleCardClick(index: number, card: Card, sourceEl: HTMLElement) {
   if (gameOver) return; // Don't allow interactions after game over
   if (isPlayPending) return; // Prevent double-play while waiting for server response
   if (isReconnecting) return; // Prevent actions while reconnecting
+
+  // After Lucky Hand the only legal action is the boosted draw.
+  if (currentGameState?.luckyDrawPlayerId === yourPlayerId) return;
 
   if (card.type === "pickswap" || card.type === "wildpickswap") {
     // Choose target opponent first (then color for the wild variant)
@@ -956,6 +1040,10 @@ function handleCardClick(index: number, card: Card, sourceEl: HTMLElement) {
     pendingWildCardEl = sourceEl;
     pendingWildTargetPlayerId = null;
     showColorPicker();
+  } else if (card.type === "godmode") {
+    pendingGodCardIndex = index;
+    pendingGodCardEl = sourceEl;
+    showGodPowerPicker();
   } else {
     // Play card immediately
     animateCardToDiscard(sourceEl);
@@ -964,7 +1052,7 @@ function handleCardClick(index: number, card: Card, sourceEl: HTMLElement) {
 }
 
 // Play a card
-function playCard(options: { index: number; chosenColor?: string; targetPlayerId?: string }) {
+function playCard(options: { index: number; chosenColor?: string; targetPlayerId?: string; godPower?: string }) {
   if (!ws) return;
 
   isPlayPending = true;
@@ -983,6 +1071,7 @@ function playCard(options: { index: number; chosenColor?: string; targetPlayerId
     cardIndex: options.index,
     chosenColor: options.chosenColor,
     targetPlayerId: options.targetPlayerId,
+    godPower: options.godPower,
   });
 }
 
@@ -1018,6 +1107,8 @@ function triggerDrawHaptic(cardCount: number) {
 
 // Handle card drawn
 function handleCardDrawn(cards: Card[], forced: boolean) {
+  clearLuckyGlow();
+
   console.log(`Drew ${cards.length} card(s)`, forced ? "(forced)" : "");
 
   // Trigger haptic feedback for forced draws
@@ -1064,6 +1155,25 @@ function handleCardEffect(effect: string, targetPlayerId?: string) {
       // Sent only to the victim; targetPlayerId is the thief.
       haptic();
       showToast("🦹 A card was stolen from you!");
+    } else if (effect === "luckyHand") {
+      haptic.confirm?.() || haptic();
+      playLuckyHandAnimation();
+      showToast("🍀 Lucky Hand — your draw is blessed!");
+    } else if (effect === "luckyHandPlayed") {
+      // Seen by everyone else; light cue only.
+      showToast("🍀 Lucky Hand played!");
+    } else if (effect === "allSeeingEye") {
+      haptic();
+      playAllSeeingEyeAnimation();
+      showToast("👁 All-Seeing Eye — all hands revealed!");
+    } else if (effect === "bigBang") {
+      haptic.error?.() || haptic();
+      playBigBangAnimation();
+      showToast("💥 Big Bang — all hands reshuffled!");
+    } else if (effect === "reincarnation") {
+      haptic.error?.() || haptic();
+      playReincarnationAnimation();
+      showToast("♻️ Reincarnation — everyone reborn with 7 fresh cards!");
     }
   } catch {}
 }
@@ -1159,10 +1269,13 @@ function showTargetPicker() {
     row.dataset.playerId = opp.id;
     row.innerHTML = `<span class="target-avatar">${opp.avatar}</span><span class="target-name">${escapeHtml(opp.name)}</span>`;
     row.addEventListener("click", () => {
-      hideTargetPicker();
+      // Capture the pending card BEFORE hiding the picker — hideTargetPicker()
+      // clears these fields, so reading them afterwards would always be null
+      // and the swap would silently do nothing.
       const index = pendingTargetCardIndex;
       const el = pendingTargetCardEl;
       const type = pendingTargetCardType;
+      hideTargetPicker();
       if (index === null || !el || !type) return;
 
       if (type === "wildpickswap") {
@@ -1187,6 +1300,27 @@ function hideTargetPicker() {
   pendingTargetCardIndex = null;
   pendingTargetCardEl = null;
   pendingTargetCardType = null;
+}
+
+// Show God Mode power picker
+function showGodPowerPicker() {
+  document.getElementById("godPowerPicker")!.classList.remove("hidden");
+}
+
+// Hide God Mode power picker
+function hideGodPowerPicker() {
+  document.getElementById("godPowerPicker")!.classList.add("hidden");
+}
+
+function selectGodPower(power: string) {
+  if (pendingGodCardIndex === null) return;
+  const index = pendingGodCardIndex;
+  const el = pendingGodCardEl;
+  pendingGodCardIndex = null;
+  pendingGodCardEl = null;
+  hideGodPowerPicker();
+  if (el) animateCardToDiscard(el);
+  playCard({ index, godPower: power });
 }
 
 // Escape HTML for safe rendering of player names
@@ -1300,6 +1434,19 @@ function setupEventListeners() {
   // Target picker overlay (click to cancel)
   document.getElementById("targetPickerOverlay")?.addEventListener("click", () => {
     hideTargetPicker();
+  });
+
+  // God Mode power picker buttons
+  document.querySelectorAll(".god-power-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const power = (btn as HTMLElement).dataset.power;
+      if (power) selectGodPower(power);
+    });
+  });
+  document.getElementById("godPowerPickerOverlay")?.addEventListener("click", () => {
+    pendingGodCardIndex = null;
+    pendingGodCardEl = null;
+    hideGodPowerPicker();
   });
 
   // Back to lobby button
