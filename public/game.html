@@ -19,6 +19,10 @@
     .draw-pile-lucky { animation: luckyPulse 0.9s ease-in-out infinite; border-radius: 12px; }
     .opponent-revealed-hand { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; max-width: 120px; }
     .mini-card { transform: scale(0.42); transform-origin: center; margin: -18px -10px; }
+    @keyframes fxFlash { 0% { opacity: 0; } 20% { opacity: 0.9; } 100% { opacity: 0; } }
+    .fx-flash { position: fixed; inset: 0; z-index: 80; pointer-events: none; background: radial-gradient(circle at center, #fff 0%, #ffb347 40%, transparent 70%); animation: fxFlash 0.5s ease-out forwards; }
+    @keyframes fxEyeBlink { 0% { transform: translate(-50%,-50%) scale(0.4); opacity: 0; } 30% { transform: translate(-50%,-50%) scale(1.1); opacity: 1; } 70% { transform: translate(-50%,-50%) scale(1); opacity: 1; } 100% { transform: translate(-50%,-50%) scale(1.2); opacity: 0; } }
+    .fx-eye { position: fixed; z-index: 80; pointer-events: none; font-size: 96px; animation: fxEyeBlink 1.2s ease-in-out forwards; }
   </style>
 </head>
 <body class="game-body">

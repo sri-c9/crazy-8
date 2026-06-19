@@ -803,6 +803,72 @@ function playReverseAnimation(): void {
   }
 }
 
+// 🍀 Lucky Hand: gold ring + sparkle over the draw pile; pile glows until you draw.
+function playLuckyHandAnimation(): void {
+  const drawPile = document.getElementById("drawPile") || document.querySelector(".piles-container");
+  if (drawPile) {
+    (drawPile as HTMLElement).classList.add("draw-pile-lucky");
+  }
+  if (!motionEnabled()) return;
+  const center = getBoardCenter();
+  emitRingPulse(center, "rgba(255,210,80,0.9)");
+  emitRingPulse(center, "rgba(255,235,160,0.7)", 120);
+}
+
+// Remove the lucky glow once the draw resolves (called from handleCardDrawn).
+function clearLuckyGlow(): void {
+  document.querySelectorAll(".draw-pile-lucky").forEach((el) => el.classList.remove("draw-pile-lucky"));
+}
+
+// 👁 All-Seeing Eye: violet iris ring + blinking eye; pulse every player.
+function playAllSeeingEyeAnimation(): void {
+  if (!motionEnabled()) return;
+  const center = getBoardCenter();
+  emitRingPulse(center, "rgba(168,85,247,0.9)");
+  const eye = document.createElement("div");
+  eye.className = "fx-eye";
+  eye.textContent = "👁";
+  eye.style.left = `${center.x}px`;
+  eye.style.top = `${center.y}px`;
+  document.body.appendChild(eye);
+  eye.addEventListener("animationend", () => eye.remove(), { once: true });
+  (currentGameState?.players ?? []).forEach((p, i) => pulseEndpoint(p.id, "rgba(168,85,247,0.9)", i * 60));
+}
+
+// 💥 Big Bang: flash + shockwave, hands implode to center then scatter back out.
+function playBigBangAnimation(): void {
+  if (!motionEnabled()) return;
+  const center = getBoardCenter();
+  const flash = document.createElement("div");
+  flash.className = "fx-flash";
+  document.body.appendChild(flash);
+  flash.addEventListener("animationend", () => flash.remove(), { once: true });
+  emitRingPulse(center, "rgba(255,179,71,0.95)");
+  const players = currentGameState?.players ?? [];
+  players.forEach((p, i) => {
+    const pt = getPlayerScreenPoint(p.id);
+    if (!pt) return;
+    flyHandStack(pt, center, { arc: 30, delay: i * 40, duration: 420, tint: "#ffb347" });        // implode
+    flyHandStack(center, pt, { arc: -30, delay: 460 + i * 40, duration: 520, tint: "#ffd27a" });  // scatter
+  });
+}
+
+// ♻️ Reincarnation: hands burn away upward, then fresh stacks deal out to everyone.
+function playReincarnationAnimation(): void {
+  if (!motionEnabled()) return;
+  const center = getBoardCenter();
+  const players = currentGameState?.players ?? [];
+  players.forEach((p, i) => {
+    const pt = getPlayerScreenPoint(p.id);
+    if (!pt) return;
+    // Incinerate: rise and dissolve.
+    flyHandStack(pt, { x: pt.x, y: pt.y - 120 }, { arc: 0, delay: i * 40, duration: 460, tint: "#ff5a36", spin: 40 });
+    // Rebirth: deal fresh cards from center.
+    flyHandStack(center, pt, { arc: 20, delay: 520 + i * 50, duration: 560, tint: "#34d399" });
+    pulseEndpoint(p.id, "rgba(52,211,153,0.9)", 520 + i * 50);
+  });
+}
+
 // Create card element
 function createCardElement(card: Card): HTMLElement {
   const div = document.createElement("div");
@@ -1061,6 +1127,8 @@ function triggerDrawHaptic(cardCount: number) {
 
 // Handle card drawn
 function handleCardDrawn(cards: Card[], forced: boolean) {
+  clearLuckyGlow();
+
   console.log(`Drew ${cards.length} card(s)`, forced ? "(forced)" : "");
 
   // Trigger haptic feedback for forced draws
@@ -1107,6 +1175,25 @@ function handleCardEffect(effect: string, targetPlayerId?: string) {
       // Sent only to the victim; targetPlayerId is the thief.
       haptic();
       showToast("🦹 A card was stolen from you!");
+    } else if (effect === "luckyHand") {
+      haptic.confirm?.() || haptic();
+      playLuckyHandAnimation();
+      showToast("🍀 Lucky Hand — your draw is blessed!");
+    } else if (effect === "luckyHandPlayed") {
+      // Seen by everyone else; light cue only.
+      showToast("🍀 Lucky Hand played!");
+    } else if (effect === "allSeeingEye") {
+      haptic();
+      playAllSeeingEyeAnimation();
+      showToast("👁 All-Seeing Eye — all hands revealed!");
+    } else if (effect === "bigBang") {
+      haptic.error?.() || haptic();
+      playBigBangAnimation();
+      showToast("💥 Big Bang — all hands reshuffled!");
+    } else if (effect === "reincarnation") {
+      haptic.error?.() || haptic();
+      playReincarnationAnimation();
+      showToast("♻️ Reincarnation — everyone reborn with 7 fresh cards!");
     }
   } catch {}
 }
@@ -1202,10 +1289,13 @@ function showTargetPicker() {
     row.dataset.playerId = opp.id;
     row.innerHTML = `<span class="target-avatar">${opp.avatar}</span><span class="target-name">${escapeHtml(opp.name)}</span>`;
     row.addEventListener("click", () => {
-      hideTargetPicker();
+      // Capture the pending card BEFORE hiding the picker — hideTargetPicker()
+      // clears these fields, so reading them afterwards would always be null
+      // and the swap would silently do nothing.
       const index = pendingTargetCardIndex;
       const el = pendingTargetCardEl;
       const type = pendingTargetCardType;
+      hideTargetPicker();
       if (index === null || !el || !type) return;
 
       if (type === "wildpickswap") {
