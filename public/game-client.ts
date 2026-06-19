@@ -1,5 +1,6 @@
 // Game client - handles WebSocket connection, rendering, and user interactions
 import { haptic } from "ios-haptics";
+import { seatOpponents } from "./turn-order";
 
 interface Card {
   type: string;
@@ -212,7 +213,7 @@ function renderGameState(state: GameState, playerId: string) {
   wasYourTurn = isYourTurn;
 
   // Render opponents
-  renderOpponents(state.players, state.currentPlayerId, yourPlayerId);
+  renderOpponents(state.players, state.currentPlayerId, yourPlayerId, state.direction);
 
   // Render top card
   renderTopCard(state.topCard, state.lastPlayedColor);
@@ -331,25 +332,32 @@ function renderGameState(state: GameState, playerId: string) {
 function renderOpponents(
   players: Player[],
   currentPlayerId: string,
-  yourId: string
+  yourId: string,
+  direction: number
 ) {
   const container = document.getElementById("opponentsList")!;
   container.innerHTML = "";
 
-  const opponents = players.filter((p) => p.id !== yourId);
-  if (opponents.length === 0) return;
+  // Seat opponents in true rotation order from the local player; the helper
+  // also flags the current player and the player who is up next.
+  const seats = seatOpponents(players, yourId, currentPlayerId, direction);
+  if (seats.length === 0) return;
 
   // Calculate semicircular arc positions (160deg to 20deg, left to right)
   const startAngle = 160; // deg
   const endAngle = 20; // deg
   const totalArc = startAngle - endAngle; // 140 degrees
 
-  opponents.forEach((player, index) => {
+  seats.forEach((seat, index) => {
+    const player = seat.player;
     const div = document.createElement("div");
     div.className = "opponent-node";
     div.dataset.playerId = player.id;
-    if (player.id === currentPlayerId) {
+    if (seat.isCurrent) {
       div.classList.add("current-turn");
+    }
+    if (seat.isNext) {
+      div.classList.add("next-turn");
     }
     if (!player.connected) {
       div.classList.add("disconnected");
@@ -357,10 +365,10 @@ function renderOpponents(
 
     // Calculate angle for this opponent
     let angle: number;
-    if (opponents.length === 1) {
+    if (seats.length === 1) {
       angle = 90; // Center top
     } else {
-      const step = totalArc / (opponents.length - 1);
+      const step = totalArc / (seats.length - 1);
       angle = startAngle - (step * index);
     }
 
@@ -382,6 +390,14 @@ function renderOpponents(
     avatarCircle.className = "opponent-avatar-circle";
     avatarCircle.textContent = player.avatar;
     div.appendChild(avatarCircle);
+
+    // "NEXT" badge on whoever plays immediately after the current player.
+    if (seat.isNext) {
+      const nextBadge = document.createElement("div");
+      nextBadge.className = "next-badge";
+      nextBadge.textContent = "NEXT";
+      div.appendChild(nextBadge);
+    }
 
     const nameDiv = document.createElement("div");
     nameDiv.className = "opponent-name";
@@ -595,6 +611,177 @@ function animateOpponentPlayToDiscard(sourceEl: HTMLElement): void {
   );
 
   animation.onfinish = () => clone.remove();
+}
+
+// ============================================================
+// Special-card effect animations (swap / rotate / reverse)
+// All purely cosmetic; server state stays authoritative.
+// ============================================================
+
+// True when the browser can animate and the user hasn't opted out.
+function motionEnabled(): boolean {
+  if (typeof Element === "undefined" || !Element.prototype.animate) return false;
+  if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
+  return true;
+}
+
+// Screen-space anchor point for a player's "hand": the bottom hand area for
+// yourself, or the opponent's avatar circle for everyone else.
+function getPlayerScreenPoint(playerId: string): { x: number; y: number } | null {
+  if (playerId === yourPlayerId) {
+    const hand = document.querySelector(".hand-area") as HTMLElement | null;
+    if (!hand) return null;
+    const r = hand.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height * 0.28 };
+  }
+  const node = document.querySelector(
+    `.opponent-node[data-player-id="${playerId}"] .opponent-avatar-circle`
+  ) as HTMLElement | null;
+  if (!node) return null;
+  const r = node.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+// Fly a small fanned stack of face-down cards from one point to another along
+// an arced path. `arc` bulges the midpoint perpendicular to the travel line
+// (sign follows travel direction, so opposing trips curve to opposite sides).
+function flyHandStack(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  opts: { arc?: number; delay?: number; duration?: number; tint?: string; spin?: number } = {}
+): void {
+  if (!motionEnabled()) return;
+
+  const { arc = 0, delay = 0, duration = 640, tint, spin = 0 } = opts;
+
+  const stack = document.createElement("div");
+  stack.className = "fx-hand-stack";
+  stack.innerHTML = "<i></i><i></i><i></i>";
+  if (tint) stack.style.setProperty("--fx-tint", tint);
+  stack.style.left = `${from.x}px`;
+  stack.style.top = `${from.y}px`;
+  document.body.appendChild(stack);
+
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const px = -dy / len; // perpendicular unit vector
+  const py = dx / len;
+  const midX = dx * 0.5 + px * arc;
+  const midY = dy * 0.5 + py * arc;
+
+  const anim = stack.animate(
+    [
+      { transform: "translate(-50%, -50%) translate(0px, 0px) scale(0.55) rotate(0deg)", opacity: 0 },
+      { transform: "translate(-50%, -50%) translate(0px, 0px) scale(1) rotate(0deg)", opacity: 1, offset: 0.14 },
+      { transform: `translate(-50%, -50%) translate(${midX}px, ${midY}px) scale(1.08) rotate(${spin * 0.5}deg)`, opacity: 1, offset: 0.5 },
+      { transform: `translate(-50%, -50%) translate(${dx}px, ${dy}px) scale(0.66) rotate(${spin}deg)`, opacity: 0 },
+    ],
+    { duration, delay, easing: "cubic-bezier(0.45, 0, 0.25, 1)", fill: "forwards" }
+  );
+  const cleanup = () => stack.remove();
+  anim.onfinish = cleanup;
+  anim.oncancel = cleanup;
+}
+
+// Glow pulse on a player's anchor (avatar circle or hand area).
+function pulseEndpoint(playerId: string, color: string, delay = 0): void {
+  if (!motionEnabled()) return;
+  const el =
+    playerId === yourPlayerId
+      ? (document.querySelector(".hand-area") as HTMLElement | null)
+      : (document.querySelector(
+          `.opponent-node[data-player-id="${playerId}"] .opponent-avatar-circle`
+        ) as HTMLElement | null);
+  if (!el) return;
+  window.setTimeout(() => {
+    el.style.setProperty("--fx-glow", color);
+    el.classList.remove("fx-endpoint-glow");
+    void el.offsetWidth;
+    el.classList.add("fx-endpoint-glow");
+    el.addEventListener("animationend", () => el.classList.remove("fx-endpoint-glow"), { once: true });
+  }, delay);
+}
+
+// Expanding ring pulse centered on a screen point.
+function emitRingPulse(point: { x: number; y: number }, color: string, delay = 0): void {
+  if (!motionEnabled()) return;
+  const ring = document.createElement("div");
+  ring.className = "fx-ring-pulse";
+  ring.style.left = `${point.x}px`;
+  ring.style.top = `${point.y}px`;
+  ring.style.setProperty("--fx-glow", color);
+  document.body.appendChild(ring);
+  const anim = ring.animate(
+    [
+      { transform: "translate(-50%, -50%) scale(0.3)", opacity: 0.85 },
+      { transform: "translate(-50%, -50%) scale(2.6)", opacity: 0 },
+    ],
+    { duration: 700, delay, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "forwards" }
+  );
+  const cleanup = () => ring.remove();
+  anim.onfinish = cleanup;
+  anim.oncancel = cleanup;
+}
+
+// Center point of the discard/board area (fallback to viewport center).
+function getBoardCenter(): { x: number; y: number } {
+  const el = document.getElementById("topCard") || document.querySelector(".piles-container");
+  if (el) {
+    const r = (el as HTMLElement).getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+  return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+}
+
+// Swap: two hand stacks cross past each other on opposite arcs, both ends glow.
+function playSwapAnimation(otherPlayerId: string): void {
+  if (!yourPlayerId) return;
+  const me = getPlayerScreenPoint(yourPlayerId);
+  const other = getPlayerScreenPoint(otherPlayerId);
+  if (!me || !other) return;
+  flyHandStack(me, other, { arc: 70, spin: 360, tint: "rgba(255, 204, 0, 0.85)" });
+  flyHandStack(other, me, { arc: 70, spin: -360, tint: "rgba(90, 200, 250, 0.9)" });
+  pulseEndpoint(yourPlayerId, "rgba(255, 204, 0, 0.85)");
+  pulseEndpoint(otherPlayerId, "rgba(90, 200, 250, 0.9)");
+}
+
+// Rotate: every seat passes its hand to the next seat in the play direction.
+function playRotateAnimation(): void {
+  const state = currentGameState;
+  if (!state) return;
+  const players = state.players;
+  const n = players.length;
+  if (n < 2) return;
+  const dir = state.direction >= 0 ? 1 : -1;
+  for (let i = 0; i < n; i++) {
+    const from = getPlayerScreenPoint(players[i].id);
+    const to = getPlayerScreenPoint(players[(i + dir + n) % n].id);
+    if (!from || !to) continue;
+    flyHandStack(from, to, {
+      arc: 60 * dir,
+      delay: i * 70,
+      spin: dir * 200,
+      tint: "rgba(52, 199, 89, 0.9)",
+    });
+  }
+  emitRingPulse(getBoardCenter(), "rgba(52, 199, 89, 0.8)");
+}
+
+// Reverse: a glow ripple sweeps around the seating order the new way.
+function playReverseAnimation(): void {
+  const state = currentGameState;
+  const color = "rgba(255, 159, 10, 0.9)"; // warning orange
+  emitRingPulse(getBoardCenter(), color);
+  if (!state) return;
+  const players = state.players;
+  const n = players.length;
+  const dir = state.direction >= 0 ? 1 : -1;
+  // Walk the ring in the (new) direction so the ripple reads as a reversal.
+  for (let step = 0; step < n; step++) {
+    const idx = ((step * dir) % n + n) % n;
+    pulseEndpoint(players[idx].id, color, step * 90);
+  }
 }
 
 // Create card element
@@ -854,19 +1041,27 @@ function handleCardEffect(effect: string, targetPlayerId?: string) {
       showToast("You were skipped!");
     } else if (effect === "reversed") {
       navigator.vibrate?.(30) || haptic(); // Light buzz — direction changed
+      playReverseAnimation();
       showToast("Direction reversed!");
-    } else if (effect === "youSwapped" && targetPlayerId === yourPlayerId) {
+    } else if (effect === "youSwapped") {
+      // Sent only to the swapper; targetPlayerId is the player they swapped with.
+      haptic();
+      if (targetPlayerId) playSwapAnimation(targetPlayerId);
       showToast("Hands swapped!");
-    } else if (effect === "swapped" && targetPlayerId === yourPlayerId) {
+    } else if (effect === "swapped") {
+      // Sent only to the player whose hand was taken; targetPlayerId is the swapper.
       haptic(); // Haptic feedback for being swapped
+      if (targetPlayerId) playSwapAnimation(targetPlayerId);
       showToast("Your hand was swapped!");
     } else if (effect === "nope") {
       showToast("🛡 Stack cancelled!");
     } else if (effect === "rotate") {
+      playRotateAnimation();
       showToast("🔄 Hands rotated!");
     } else if (effect === "youStole" && targetPlayerId) {
       showToast("🦹 You stole a card!");
-    } else if (effect === "stolen" && targetPlayerId === yourPlayerId) {
+    } else if (effect === "stolen") {
+      // Sent only to the victim; targetPlayerId is the thief.
       haptic();
       showToast("🦹 A card was stolen from you!");
     }
