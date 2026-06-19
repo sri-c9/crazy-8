@@ -243,7 +243,10 @@ function getRoomPlayerList(roomCode: string): PlayerListItem[] {
   if (!room) return [];
 
   return Array.from(room.players.values()).map((player) => ({
-    ...player,
+    id: player.id,
+    name: player.name,
+    avatar: player.avatar,
+    connected: player.connected,
     isHost: player.id === room.hostId,
   }));
 }
