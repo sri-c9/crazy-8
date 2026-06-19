@@ -10,3 +10,5 @@ services:
         value: production
       - key: ADMIN_KEY
         generateValue: true
+      - key: PORT
+        value: 3000
