@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Insane Crazy 8 - Game</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Amatic+SC:wght@700&family=Comic+Neue:wght@400;700&family=Patrick+Hand&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <style>
     .picker-overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; }
@@ -45,7 +48,7 @@
     </div>
 
     <!-- Disconnected Player Alert -->
-    <div id="disconnectedAlert" class="pending-alert hidden" style="background: rgba(150,150,150,0.15); border-color: rgba(150,150,150,0.4);">
+    <div id="disconnectedAlert" class="pending-alert hidden" style="border-color: var(--ink-mid);">
       📶 Waiting for <span id="disconnectedName">player</span> to reconnect...
     </div>
 
@@ -70,7 +73,10 @@
 
     <!-- Direction Indicator -->
     <div class="direction-indicator clockwise" id="directionIndicator">
-      <span class="direction-arrow" id="directionArrow"></span>
+      <svg class="direction-arrow" id="directionArrow" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M16 4a12 12 0 1 1-9 4"/>
+        <polyline points="7,8 7,16 15,16"/>
+      </svg>
     </div>
   </div>
 

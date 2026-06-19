@@ -1,6 +1,7 @@
 // Game client - handles WebSocket connection, rendering, and user interactions
 import { haptic } from "./haptics";
 import { seatOpponents } from "./turn-order";
+import { icons, elementByColor, colorLabel } from "./card-icons";
 
 interface Card {
   type: string;
@@ -869,89 +870,142 @@ function playReincarnationAnimation(): void {
   });
 }
 
+// Small badge values shown in the bottom-center of special cards.
+const SPECIAL_BADGES: Record<string, string> = {
+  skip: "SKIP",
+  reverse: "REV",
+  swap: "SWAP",
+  nope: "NOPE",
+  rotate: "ROT",
+  steal: "STEAL",
+  pickswap: "SWAP",
+  wildpickswap: "SWAP",
+  luckyhand: "LUCKY",
+  godmode: "GOD",
+};
+
+// Icon/arrangement configuration per card type.
+interface CardTypeConfig {
+  cornerValue: string;
+  faceIcon?: string; // key into icons map; if omitted, no centered icon
+  faceValue?: string; // large centered value
+  typeBadge?: string; // bottom-center badge text for special cards
+  extraFaceIcon?: string; // smaller secondary icon rendered alongside value
+}
+
+function configForCard(card: Card): CardTypeConfig {
+  switch (card.type) {
+    case "number":
+      return { cornerValue: card.value!.toString() };
+    case "wild":
+      return { cornerValue: "8", faceIcon: "spark", faceValue: "8" };
+    case "plus2":
+      return { cornerValue: "+2", faceValue: "+2", extraFaceIcon: "flashSmall" };
+    case "plus4":
+      return { cornerValue: "+4", faceValue: "+4", extraFaceIcon: "flashBig" };
+    case "plus20":
+    case "plus20color":
+      return { cornerValue: "+20", faceValue: "+20", extraFaceIcon: "cataclysm" };
+    case "skip":
+      return { cornerValue: "S", faceIcon: "skipArrow", typeBadge: SPECIAL_BADGES.skip };
+    case "reverse":
+      return { cornerValue: "R", faceIcon: "reverseArrow", typeBadge: SPECIAL_BADGES.reverse };
+    case "swap":
+      return { cornerValue: "X", faceIcon: "swapArrows", typeBadge: SPECIAL_BADGES.swap };
+    case "nope":
+      return { cornerValue: "N", faceIcon: "shield", typeBadge: SPECIAL_BADGES.nope };
+    case "rotate":
+      return { cornerValue: "R", faceIcon: "rotateArrow", typeBadge: SPECIAL_BADGES.rotate };
+    case "steal":
+      return { cornerValue: "S", faceIcon: "stealMask", typeBadge: SPECIAL_BADGES.steal };
+    case "pickswap":
+      return { cornerValue: "X", faceIcon: "swapArrows", typeBadge: SPECIAL_BADGES.pickswap };
+    case "wildpickswap":
+      return { cornerValue: "X", faceIcon: "swapArrows", typeBadge: SPECIAL_BADGES.wildpickswap };
+    case "luckyhand":
+      return { cornerValue: "L", faceIcon: "clover", typeBadge: SPECIAL_BADGES.luckyhand };
+    case "godmode":
+      return { cornerValue: "G", faceIcon: "bolt", typeBadge: SPECIAL_BADGES.godmode };
+  }
+}
+
+function cardColorClass(card: Card): string {
+  return card.color || card.chosenColor || "wild";
+}
+
+function cardTypeModifier(card: Card): string {
+  // Normalize plus20color to plus20 for CSS; wildpickswap keeps its own modifier.
+  if (card.type === "plus20color") return "plus20color";
+  if (card.type === "wildpickswap") return "wildpickswap";
+  return card.type;
+}
+
+function cornerHtml(value: string, iconName: string | undefined): string {
+  const iconHtml = iconName ? icons[iconName].corner : "";
+  return `<span class="card-corner">${value}${iconHtml}</span>`;
+}
+
+function cardFaceHtml(
+  config: CardTypeConfig,
+  color: string,
+  showLabels: boolean
+): string {
+  const element = elementByColor[color] ?? "spark";
+  let inner = "";
+
+  if (config.faceIcon) {
+    inner += icons[config.faceIcon].face;
+  } else if (config.faceValue) {
+    // Number / plus cards use the element icon as the centered motif.
+    inner += icons[element].face;
+  }
+
+  if (config.faceValue) {
+    inner += `<span class="card-value">${config.faceValue}</span>`;
+  }
+
+  if (config.extraFaceIcon && config.faceValue) {
+    // Extra icon is rendered as an overlay motif by CSS in Phase D.
+    inner += `<span class="card-extra-icon" aria-hidden="true">${icons[config.extraFaceIcon].face}</span>`;
+  }
+
+  if (showLabels) {
+    if (config.typeBadge) {
+      inner += `<span class="card-type">${config.typeBadge}</span>`;
+    }
+
+    if (showLabels && colorLabel[color]) {
+      inner += `<span class="card-label">${colorLabel[color]}</span>`;
+    }
+  }
+
+  return inner;
+}
+
+function buildCardHtml(card: Card, showLabels: boolean): { className: string; html: string } {
+  const color = cardColorClass(card);
+  const modifier = cardTypeModifier(card);
+  const config = configForCard(card);
+  const element = elementByColor[color] ?? "spark";
+
+  // For non-number special cards, the corner repeats the face icon.
+  const cornerIcon = config.faceIcon || element;
+
+  const className = `card ${color} ${modifier}`;
+  const html = `
+    <span class="card-corner card-corner-tl">${config.cornerValue}${icons[cornerIcon].corner}</span>
+    <div class="card-face">${cardFaceHtml(config, color, showLabels)}</div>
+    <span class="card-corner card-corner-br">${config.cornerValue}${icons[cornerIcon].corner}</span>
+  `;
+  return { className, html };
+}
+
 // Create card element
 function createCardElement(card: Card): HTMLElement {
   const div = document.createElement("div");
-  const color = card.color || card.chosenColor || "wild";
-  div.className = `card ${color}`;
-
-  let content = "";
-  let cornerValue = "";
-
-  switch (card.type) {
-    case "number":
-      content = `<span class="card-value">${card.value}</span>`;
-      cornerValue = card.value!.toString();
-      break;
-    case "wild":
-      content = `<span class="card-value">8</span><span class="card-type">WILD</span>`;
-      cornerValue = "8";
-      break;
-    case "plus2":
-      content = `<span class="card-value">+2</span>`;
-      cornerValue = "+2";
-      break;
-    case "plus4":
-      content = `<span class="card-value">+4</span>`;
-      cornerValue = "+4";
-      break;
-    case "plus20":
-      content = `<span class="card-value">+20</span>`;
-      cornerValue = "+20";
-      break;
-    case "plus20color":
-      content = `<span class="card-value">+20</span>`;
-      cornerValue = "+20";
-      break;
-    case "skip":
-      content = `<span class="card-value">⊘</span><span class="card-type">SKIP</span>`;
-      cornerValue = "⊘";
-      break;
-    case "reverse":
-      content = `<span class="card-value">⇄</span><span class="card-type">REV</span>`;
-      cornerValue = "⇄";
-      break;
-    case "swap":
-      content = `<span class="card-value">⇅</span><span class="card-type">SWAP</span>`;
-      cornerValue = "⇅";
-      break;
-    case "nope":
-      content = `<span class="card-value">🛡</span><span class="card-type">NOPE</span>`;
-      cornerValue = "N";
-      break;
-    case "rotate":
-      content = `<span class="card-value">🔄</span><span class="card-type">ROT</span>`;
-      cornerValue = "R";
-      break;
-    case "steal":
-      content = `<span class="card-value">🦹</span><span class="card-type">STEAL</span>`;
-      cornerValue = "S";
-      break;
-    case "pickswap":
-      content = `<span class="card-value">⇆</span><span class="card-type">SWAP</span>`;
-      cornerValue = "⇆";
-      break;
-    case "wildpickswap":
-      content = `<span class="card-value">⇆</span><span class="card-type">SWAP</span>`;
-      cornerValue = "⇆";
-      break;
-    case "luckyhand":
-      content = `<span class="card-value">🍀</span><span class="card-type">LUCKY</span>`;
-      cornerValue = "🍀";
-      break;
-    case "godmode":
-      content = `<span class="card-value">⚡</span><span class="card-type">GOD</span>`;
-      cornerValue = "⚡";
-      break;
-  }
-
-  // Add corner numbers
-  div.innerHTML = `
-    <span class="card-corner card-corner-tl">${cornerValue}</span>
-    ${content}
-    <span class="card-corner card-corner-br">${cornerValue}</span>
-  `;
-
+  const { className, html } = buildCardHtml(card, true);
+  div.className = className;
+  div.innerHTML = html;
   return div;
 }
 
@@ -959,84 +1013,10 @@ function createCardElement(card: Card): HTMLElement {
 function renderTopCard(card: Card, lastColor: string | null) {
   const topCard = document.getElementById("topCard")!;
   const displayColor = card.color || lastColor || "wild";
-  topCard.className = `card ${displayColor}`;
-
-  let content = "";
-  let cornerValue = "";
-
-  switch (card.type) {
-    case "number":
-      content = `<span class="card-value">${card.value}</span>`;
-      cornerValue = card.value!.toString();
-      break;
-    case "wild":
-      content = `<span class="card-value">8</span>`;
-      cornerValue = "8";
-      break;
-    case "plus2":
-      content = `<span class="card-value">+2</span>`;
-      cornerValue = "+2";
-      break;
-    case "plus4":
-      content = `<span class="card-value">+4</span>`;
-      cornerValue = "+4";
-      break;
-    case "plus20":
-      content = `<span class="card-value">+20</span>`;
-      cornerValue = "+20";
-      break;
-    case "plus20color":
-      content = `<span class="card-value">+20</span>`;
-      cornerValue = "+20";
-      break;
-    case "skip":
-      content = `<span class="card-value">⊘</span>`;
-      cornerValue = "⊘";
-      break;
-    case "reverse":
-      content = `<span class="card-value">⇄</span>`;
-      cornerValue = "⇄";
-      break;
-    case "swap":
-      content = `<span class="card-value">⇅</span>`;
-      cornerValue = "⇅";
-      break;
-    case "nope":
-      content = `<span class="card-value">🛡</span>`;
-      cornerValue = "N";
-      break;
-    case "rotate":
-      content = `<span class="card-value">🔄</span>`;
-      cornerValue = "R";
-      break;
-    case "steal":
-      content = `<span class="card-value">🦹</span>`;
-      cornerValue = "S";
-      break;
-    case "pickswap":
-      content = `<span class="card-value">⇆</span>`;
-      cornerValue = "⇆";
-      break;
-    case "wildpickswap":
-      content = `<span class="card-value">⇆</span>`;
-      cornerValue = "⇆";
-      break;
-    case "luckyhand":
-      content = `<span class="card-value">🍀</span>`;
-      cornerValue = "🍀";
-      break;
-    case "godmode":
-      content = `<span class="card-value">⚡</span>`;
-      cornerValue = "⚡";
-      break;
-  }
-
-  // Add corner numbers
-  topCard.innerHTML = `
-    <span class="card-corner card-corner-tl">${cornerValue}</span>
-    ${content}
-    <span class="card-corner card-corner-br">${cornerValue}</span>
-  `;
+  const displayCard = { ...card, color: displayColor };
+  const { className, html } = buildCardHtml(displayCard, false);
+  topCard.className = className;
+  topCard.innerHTML = html;
 }
 
 // Handle card click
