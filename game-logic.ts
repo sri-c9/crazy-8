@@ -235,6 +235,33 @@ export function playCard(
     throw new Error("Cannot play this card");
   }
 
+  // Validate any required choices before mutating state so the function is atomic.
+  if (card.type === "godmode") {
+    if (
+      !godPower ||
+      (godPower !== "allSeeingEye" && godPower !== "bigBang" && godPower !== "reincarnation")
+    ) {
+      throw new Error("Must choose a God Mode power");
+    }
+  }
+  if (
+    (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "wildpickswap") &&
+    !chosenColor
+  ) {
+    throw new Error("Must choose a color");
+  }
+  if (card.type === "pickswap" || card.type === "wildpickswap") {
+    if (!targetPlayerId) {
+      throw new Error("Must choose a player to swap with");
+    }
+    if (targetPlayerId === playerId) {
+      throw new Error("Cannot swap with yourself");
+    }
+    if (!room.players.has(targetPlayerId)) {
+      throw new Error("Target player not found");
+    }
+  }
+
   // Remove card from hand
   player.hand.splice(cardIndex, 1);
 
@@ -270,20 +297,11 @@ export function playCard(
 
   // Targeted swap cards: exchange hands with chosen opponent
   if (card.type === "pickswap" || card.type === "wildpickswap") {
-    if (!targetPlayerId) {
-      throw new Error("Must choose a player to swap with");
-    }
-    if (targetPlayerId === playerId) {
-      throw new Error("Cannot swap with yourself");
-    }
-    const targetPlayer = room.players.get(targetPlayerId);
-    if (!targetPlayer) {
-      throw new Error("Target player not found");
-    }
+    const targetPlayer = room.players.get(targetPlayerId!);
 
     const tempHand = player.hand;
-    player.hand = targetPlayer.hand;
-    targetPlayer.hand = tempHand;
+    player.hand = targetPlayer!.hand;
+    targetPlayer!.hand = tempHand;
   }
 
   // Swap: exchange hands with next player
@@ -337,17 +355,12 @@ export function playCard(
       bigBang(room);
     } else if (godPower === "reincarnation") {
       reincarnation(room);
-    } else {
-      throw new Error("Must choose a God Mode power");
     }
   }
 
   // Update lastPlayedColor for all card types
   if (card.type === "wild" || card.type === "plus4" || card.type === "plus20" || card.type === "wildpickswap") {
-    if (!chosenColor) {
-      throw new Error("Must choose a color");
-    }
-    room.lastPlayedColor = chosenColor;
+    room.lastPlayedColor = chosenColor!;
   } else if ("color" in card) {
     room.lastPlayedColor = card.color;
   }
