@@ -202,27 +202,22 @@ describe("Rule 4: wild color enforcement", () => {
     expect(room.lastPlayedColor).toBe("green");
   });
 
-  test("plus4 without chosenColor throws (after mutating state - see report)", () => {
+  test("plus4 without chosenColor throws", () => {
     const room = makeRoom(3, { discardPile: [num("red", 5)], lastPlayedColor: "red" });
     room.players.get("p0")!.hand = [plus4()];
     expect(() => playCard(room, "p0", 0)).toThrow("Must choose a color");
   });
 
-  test("[BUG] wild thrown after removal: card already gone from hand + discard mutated", () => {
-    // The "Must choose a color" throw happens AFTER the card is spliced from
-    // hand (game-logic.ts:288) and discardPile is overwritten (line 291) and
-    // pendingDraws already incremented for plus4. Demonstrates partial mutation.
+  test("playing plus4 without chosenColor is atomic: hand and discard unchanged", () => {
+    // Verify the pre-mutation validation fix: required choices are validated
+    // before removing the card or touching discard/pendingDraws.
     const room = makeRoom(3, { discardPile: [num("red", 5)], lastPlayedColor: "red" });
     room.players.get("p0")!.hand = [plus4(), num("red", 1)];
-    try {
-      playCard(room, "p0", 0);
-    } catch { /* expected */ }
-    // Card was removed from hand despite the play "failing":
-    expect(room.players.get("p0")!.hand.length).toBe(1);
-    // discard pile now shows the plus4 that was supposedly not legally played:
-    expect(getTopCard(room).type).toBe("plus4");
-    // pendingDraws was already bumped:
-    expect(room.pendingDraws).toBe(4);
+    expect(() => playCard(room, "p0", 0)).toThrow("Must choose a color");
+    // No partial mutation after the validation throw:
+    expect(room.players.get("p0")!.hand.length).toBe(2);
+    expect(getTopCard(room).type).toBe("number");
+    expect(room.pendingDraws).toBe(0);
   });
 });
 
@@ -580,19 +575,25 @@ describe("Rule 14: targeted swap cards", () => {
   });
 
   test("wildpickswap requires both a target and a chosen color", () => {
-    const roomNoTarget = makeRoom(3, {
-      discardPile: [num("red", 5)],
-      lastPlayedColor: "red",
-    });
-    roomNoTarget.players.get("p0")!.hand = [wildpickswap(), num("red", 1)];
-    expect(() => playCard(roomNoTarget, "p0", 0)).toThrow("Must choose a player to swap with");
-
+    // Color is validated before target for the wild-pickswap variant, so a
+    // missing color throws first even when a target is supplied.
     const roomNoColor = makeRoom(3, {
       discardPile: [num("red", 5)],
       lastPlayedColor: "red",
     });
     roomNoColor.players.get("p0")!.hand = [wildpickswap(), num("red", 1)];
     expect(() => playCard(roomNoColor, "p0", 0, undefined, "p1")).toThrow("Must choose a color");
+
+    const roomNoTarget = makeRoom(3, {
+      discardPile: [num("red", 5)],
+      lastPlayedColor: "red",
+    });
+    roomNoTarget.players.get("p0")!.hand = [wildpickswap(), num("red", 1)];
+    expect(() => playCard(roomNoTarget, "p0", 0, "red")).toThrow("Must choose a player to swap with");
+
+    // No state mutation when validation throws:
+    expect(roomNoTarget.players.get("p0")!.hand.length).toBe(2);
+    expect(getTopCard(roomNoTarget).type).toBe("number");
   });
 
   test("pickswap swaps hands with the chosen target", () => {
