@@ -109,6 +109,12 @@
     let isHost = false;
     let reconnectAttempts = 0;
     const MAX_RECONNECT_ATTEMPTS = 5;
+    // Heartbeat + disconnect diagnostics
+    const HEARTBEAT_MS = 25000;
+    let heartbeatInterval = null;
+    let lastCloseCode = 0;
+    let lastCloseReason = "";
+    let isUnloading = false;
 
     // Safe WebSocket send helper
     function safeSend(data) {
@@ -118,6 +124,30 @@
         console.warn("WebSocket not ready, cannot send:", data);
       }
     }
+
+    // App-level heartbeat. Browsers can't send WebSocket ping frames, so we send a
+    // small {action:"ping"} every 25s to keep the connection warm through proxy /
+    // mobile-carrier idle timeouts (Bun's default idleTimeout is 120s, but Render's
+    // proxy and cellular NAT reap idle sockets much sooner).
+    function startHeartbeat() {
+      stopHeartbeat();
+      heartbeatInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ action: "ping" }));
+        }
+      }, HEARTBEAT_MS);
+    }
+
+    function stopHeartbeat() {
+      if (heartbeatInterval !== null) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+      }
+    }
+
+    // Mark navigation/close so onclose doesn't fire a pointless reconnect while
+    // the page is unloading. `pagehide` fires reliably on mobile Safari.
+    window.addEventListener("pagehide", () => { isUnloading = true; });
 
     // Session persistence helpers
     function saveSession(roomCode, playerId, playerName, avatar, sessionToken) {
@@ -183,12 +213,23 @@
         reconnectAttempts = 0;
         statusEl.textContent = "Connected";
         statusDot.className = "status-dot connected";
+        startHeartbeat();
         // Enable create/join buttons now that the connection is ready
         createBtn.disabled = false;
         joinBtn.disabled = false;
         // If we were in a room when the connection dropped, rejoin it
         if (currentRoomCode && currentPlayerId) {
-          safeSend({ action: "rejoin", roomCode: currentRoomCode, playerId: currentPlayerId });
+          const sessionToken = sessionStorage.getItem("crazy8_sessionToken") || "";
+          safeSend({
+            action: "rejoin",
+            roomCode: currentRoomCode,
+            playerId: currentPlayerId,
+            sessionToken,
+            // Report why our previous socket died so the real cause is visible in
+            // server logs (0 on the very first connect).
+            prevCloseCode: lastCloseCode,
+            prevCloseReason: lastCloseReason,
+          });
         }
       };
 
@@ -208,8 +249,24 @@
         statusDot.className = "status-dot error";
       };
 
-      ws.onclose = () => {
-        console.log("🔌 WebSocket closed");
+      ws.onclose = (event) => {
+        console.log("🔌 WebSocket closed", event.code, event.reason);
+        lastCloseCode = event.code;
+        lastCloseReason = event.reason;
+        stopHeartbeat();
+
+        // Don't reconnect if we're navigating away / the tab is closing.
+        if (isUnloading) return;
+
+        // Don't reconnect if the server deliberately replaced this socket with a
+        // newer one for the same player — another tab/device took over, and
+        // reconnecting would just start a kick war between the two.
+        if (event.code === 1000 && event.reason === "Replaced by new connection") {
+          statusEl.textContent = "Opened elsewhere";
+          statusDot.className = "status-dot error";
+          return;
+        }
+
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 15000);
           reconnectAttempts++;
@@ -245,6 +302,10 @@
 
         case "playerList":
           updatePlayerList(data.players);
+          break;
+
+        case "pong":
+          // Heartbeat acknowledgement — nothing to do.
           break;
 
         case "gameStarted":
