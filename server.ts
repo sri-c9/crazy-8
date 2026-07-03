@@ -31,6 +31,7 @@ interface IncomingMessage {
   roomCode?: string;
   playerId?: string;
   sessionToken?: string;
+  deviceId?: string;
   cardIndex?: number;
   chosenColor?: CardColor;
   targetPlayerId?: string;
@@ -445,8 +446,9 @@ const handleCreate = (
 
     const playerName = validatePlayerName(msg.playerName);
     const avatar = validateString(msg.avatar, "avatar");
+    const deviceId = typeof msg.deviceId === "string" ? msg.deviceId : "";
 
-    const { roomCode, playerId, sessionToken } = createRoom(playerName, avatar);
+    const { roomCode, playerId, sessionToken } = createRoom(playerName, avatar, deviceId);
 
     ws.data.playerId = playerId;
     ws.data.playerName = playerName;
@@ -491,8 +493,9 @@ const handleJoin = (
     const roomCode = validateRoomCode(msg.roomCode);
     const playerName = validatePlayerName(msg.playerName);
     const avatar = validateString(msg.avatar, "avatar");
+    const deviceId = typeof msg.deviceId === "string" ? msg.deviceId : "";
 
-    const { playerId, sessionToken } = joinRoom(roomCode, playerName, avatar);
+    const { playerId, sessionToken } = joinRoom(roomCode, playerName, avatar, deviceId);
 
     ws.data.playerId = playerId;
     ws.data.playerName = playerName;

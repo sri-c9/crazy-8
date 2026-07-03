@@ -72,6 +72,18 @@ function cardsEqual(a: Card | undefined, b: Card | undefined): boolean {
   );
 }
 
+// Stable per-device id, used by the server to reclaim a seat on rejoin
+// instead of minting a duplicate player. Persisted in localStorage so it
+// survives tab close / browser restart.
+function getDeviceId(): string {
+  let id = localStorage.getItem("crazy8_deviceId");
+  if (!id) {
+    id = crypto.randomUUID ? crypto.randomUUID() : "d_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem("crazy8_deviceId", id);
+  }
+  return id;
+}
+
 // Safe WebSocket send helper
 function safeSend(data: any) {
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -139,12 +151,13 @@ function connectWebSocket() {
     startHeartbeat();
 
     // Identify ourselves to the server
-    const sessionToken = sessionStorage.getItem("crazy8_sessionToken") || "";
+    const sessionToken = localStorage.getItem("crazy8_sessionToken") || "";
     ws!.send(JSON.stringify({
       action: "rejoin",
       roomCode: roomCode,
       playerId: yourPlayerId,
       sessionToken,
+      deviceId: getDeviceId(),
       // Report why our previous socket died so the real cause is visible in
       // server logs (0 on the very first connect).
       prevCloseCode: lastCloseCode,

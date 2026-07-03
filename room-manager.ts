@@ -8,6 +8,7 @@ interface Player {
   avatar: string;
   connected: boolean;
   hand: Card[];  // Player's cards
+  deviceId: string;
 }
 
 interface Room {
@@ -62,6 +63,7 @@ const generatePlayerId = (): string => {
 function createRoom(
   playerName: string,
   avatar: string,
+  deviceId: string = "",
 ): { roomCode: string; playerId: string; sessionToken: string } {
   let roomCode = generateRoomCode();
   let hostId = generatePlayerId();
@@ -74,6 +76,7 @@ function createRoom(
     avatar: avatar,
     connected: true,
     hand: [],  // Initialize empty hand
+    deviceId,
   };
 
   const room: Room = {
@@ -102,12 +105,26 @@ function joinRoom(
   roomCode: string,
   playerName: string,
   avatar: string,
+  deviceId: string = "",
 ): { playerId: string; sessionToken: string } {
   const room: Room | undefined = rooms.get(roomCode);
 
   if (!room) {
     throw new Error("Room not found");
   }
+
+  // Reclaim an existing seat if this device already has one in the room.
+  // Bypasses the full/started checks below since it's not a new seat —
+  // the player is just picking their existing hand back up.
+  if (deviceId) {
+    for (const player of room.players.values()) {
+      if (player.deviceId === deviceId) {
+        player.connected = true;
+        return { playerId: player.id, sessionToken: player.sessionToken };
+      }
+    }
+  }
+
   if (room.players.size >= 6) {
     throw new Error("Room is full");
   }
@@ -125,6 +142,7 @@ function joinRoom(
     avatar: avatar,
     connected: true,
     hand: [],  // Initialize empty hand
+    deviceId,
   };
 
   room.players.set(playerId, player);
