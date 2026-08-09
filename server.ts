@@ -31,10 +31,16 @@ interface IncomingMessage {
   roomCode?: string;
   playerId?: string;
   sessionToken?: string;
+  deviceId?: string;
   cardIndex?: number;
   chosenColor?: CardColor;
   targetPlayerId?: string;
   godPower?: "allSeeingEye" | "bigBang" | "reincarnation";
+  // Diagnostics: client reports why its previous socket closed, so the real
+  // transport reason (e.g. 1006 network drop) shows up in server logs instead
+  // of being masked by our own replacePlayerConnection() close.
+  prevCloseCode?: number;
+  prevCloseReason?: string;
 }
 
 // Validation helpers
@@ -98,6 +104,13 @@ const playerConnections = new Map<string, ServerWebSocket<WebSocketData>>();
 function replacePlayerConnection(playerId: string, newWs: ServerWebSocket<WebSocketData>) {
   const oldWs = playerConnections.get(playerId);
   if (oldWs && oldWs !== newWs) {
+    // If the old socket is still OPEN, this player has two live connections
+    // (duplicate tab/device) — the tell-tale signature of a reconnect war.
+    if (oldWs.readyState === 1 /* WebSocket.OPEN */) {
+      console.warn(
+        `replacePlayerConnection: kicking a still-open connection for player=${playerId} (duplicate tab/device?)`,
+      );
+    }
     try {
       oldWs.close(1000, "Replaced by new connection");
     } catch {
@@ -276,6 +289,12 @@ const server = Bun.serve<WebSocketData>({
             handleDrawCard(ws);
             if (ws.data.roomCode) touchRoom(ws.data.roomCode);
             break;
+          case "ping":
+            // App-level heartbeat: keeps the connection warm through proxy /
+            // carrier idle timeouts and lets the client detect a dead socket.
+            ws.send(JSON.stringify({ type: "pong" }));
+            if (ws.data.roomCode) touchRoom(ws.data.roomCode);
+            break;
           default:
             ws.send(
               JSON.stringify({ type: "error", message: "Unknown action" }),
@@ -289,7 +308,10 @@ const server = Bun.serve<WebSocketData>({
       }
     },
 
-    close(ws: ServerWebSocket<WebSocketData>) {
+    close(ws: ServerWebSocket<WebSocketData>, code: number, reason: string) {
+      console.log(
+        `WebSocket closed: player=${ws.data.playerId ?? "?"} room=${ws.data.roomCode ?? "?"} code=${code} reason=${reason || "(none)"}`,
+      );
       try {
       if (ws.data.roomCode && ws.data.playerId) {
         const { roomCode, playerId } = ws.data;
@@ -424,8 +446,9 @@ const handleCreate = (
 
     const playerName = validatePlayerName(msg.playerName);
     const avatar = validateString(msg.avatar, "avatar");
+    const deviceId = typeof msg.deviceId === "string" ? msg.deviceId : "";
 
-    const { roomCode, playerId, sessionToken } = createRoom(playerName, avatar);
+    const { roomCode, playerId, sessionToken } = createRoom(playerName, avatar, deviceId);
 
     ws.data.playerId = playerId;
     ws.data.playerName = playerName;
@@ -470,8 +493,9 @@ const handleJoin = (
     const roomCode = validateRoomCode(msg.roomCode);
     const playerName = validatePlayerName(msg.playerName);
     const avatar = validateString(msg.avatar, "avatar");
+    const deviceId = typeof msg.deviceId === "string" ? msg.deviceId : "";
 
-    const { playerId, sessionToken } = joinRoom(roomCode, playerName, avatar);
+    const { playerId, sessionToken } = joinRoom(roomCode, playerName, avatar, deviceId);
 
     ws.data.playerId = playerId;
     ws.data.playerName = playerName;
@@ -516,6 +540,14 @@ const handleRejoin = (
     const roomCode = validateString(msg.roomCode, "roomCode").toUpperCase();
     const playerId = validateString(msg.playerId, "playerId");
     const token = typeof msg.sessionToken === "string" ? msg.sessionToken : "";
+
+    // Diagnostics: surface the client's real prior close code (masked in our own
+    // close handler because rejoin triggers a replacePlayerConnection 1000 close).
+    if (msg.prevCloseCode) {
+      console.log(
+        `Rejoin after close: player=${playerId} prevCode=${msg.prevCloseCode} prevReason=${msg.prevCloseReason || "(none)"}`,
+      );
+    }
 
     // Cancel disconnect timers
     const skipTimer = turnSkipTimers.get(playerId);

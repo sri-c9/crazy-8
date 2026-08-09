@@ -51,6 +51,12 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 let gameOver = false;
 let isPlayPending = false;
 let isReconnecting = false;
+// Heartbeat + disconnect diagnostics
+const HEARTBEAT_MS = 25000;
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+let lastCloseCode = 0;
+let lastCloseReason = "";
+let isUnloading = false;
 let previousHandLength = 0;
 let wasYourTurn = false;
 
@@ -66,12 +72,44 @@ function cardsEqual(a: Card | undefined, b: Card | undefined): boolean {
   );
 }
 
+// Stable per-device id, used by the server to reclaim a seat on rejoin
+// instead of minting a duplicate player. Persisted in localStorage so it
+// survives tab close / browser restart.
+function getDeviceId(): string {
+  let id = localStorage.getItem("crazy8_deviceId");
+  if (!id) {
+    id = crypto.randomUUID ? crypto.randomUUID() : "d_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem("crazy8_deviceId", id);
+  }
+  return id;
+}
+
 // Safe WebSocket send helper
 function safeSend(data: any) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(data));
   } else {
     console.warn("WebSocket not ready, cannot send:", data);
+  }
+}
+
+// App-level heartbeat. Browsers can't send WebSocket ping frames, so we send a
+// small {action:"ping"} every 25s to keep the connection warm through proxy /
+// mobile-carrier idle timeouts (Bun's default idleTimeout is 120s, but Render's
+// proxy and cellular NAT reap idle sockets much sooner).
+function startHeartbeat() {
+  stopHeartbeat();
+  heartbeatInterval = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ action: "ping" }));
+    }
+  }, HEARTBEAT_MS);
+}
+
+function stopHeartbeat() {
+  if (heartbeatInterval !== null) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
   }
 }
 
@@ -90,6 +128,10 @@ function init() {
 
   document.getElementById("roomBadge")!.textContent = roomCode;
 
+  // Mark navigation/close so onclose doesn't fire a pointless reconnect while
+  // the page is unloading. `pagehide` fires reliably on mobile Safari.
+  window.addEventListener("pagehide", () => { isUnloading = true; });
+
   connectWebSocket();
   setupEventListeners();
 }
@@ -106,14 +148,20 @@ function connectWebSocket() {
     isReconnecting = false;
     isPlayPending = false;
     hideLoading();
+    startHeartbeat();
 
     // Identify ourselves to the server
-    const sessionToken = sessionStorage.getItem("crazy8_sessionToken") || "";
+    const sessionToken = localStorage.getItem("crazy8_sessionToken") || "";
     ws!.send(JSON.stringify({
       action: "rejoin",
       roomCode: roomCode,
       playerId: yourPlayerId,
       sessionToken,
+      deviceId: getDeviceId(),
+      // Report why our previous socket died so the real cause is visible in
+      // server logs (0 on the very first connect).
+      prevCloseCode: lastCloseCode,
+      prevCloseReason: lastCloseReason,
     }));
   };
 
@@ -132,8 +180,24 @@ function connectWebSocket() {
     showError("Connection error");
   };
 
-  ws.onclose = () => {
-    console.log("Disconnected");
+  ws.onclose = (event: CloseEvent) => {
+    console.log("Disconnected", event.code, event.reason);
+    lastCloseCode = event.code;
+    lastCloseReason = event.reason;
+    stopHeartbeat();
+
+    // Don't reconnect if we're navigating away / the tab is closing.
+    if (isUnloading) return;
+
+    // Don't reconnect if the server deliberately replaced this socket with a
+    // newer one for the same player — another tab/device took over, and
+    // reconnecting would just start a kick war between the two.
+    if (event.code === 1000 && event.reason === "Replaced by new connection") {
+      isReconnecting = false;
+      showError("This game is open in another tab or on another device.");
+      return;
+    }
+
     isReconnecting = true;
     if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 15000);
@@ -173,6 +237,10 @@ function handleMessage(data: any) {
 
     case "gameStarted":
       console.log("Game started!");
+      break;
+
+    case "pong":
+      // Heartbeat acknowledgement — nothing to do.
       break;
 
     case "cardEffect":
